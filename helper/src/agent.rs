@@ -50,6 +50,10 @@ impl Response {
     fn err(e: impl ToString) -> Self {
         Response { ok: false, data: None, error: Some(e.to_string()) }
     }
+
+    fn err_chain(e: &anyhow::Error) -> Self {
+        Response { ok: false, data: None, error: Some(format!("{e:#}")) }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -226,11 +230,11 @@ fn process(req: &Request, state: &Shared) -> (Response, ConnOutcome) {
         "stop" => (Response::ok(Some("stopped".into())), ConnOutcome::Stop),
         "unlock" => match ensure_key(state) {
             Ok(_) => (Response::ok(Some("unlocked".into())), ConnOutcome::Continue),
-            Err(e) => (Response::err(e), ConnOutcome::Continue),
+            Err(e) => (Response::err_chain(&e), ConnOutcome::Continue),
         },
         "list" => match ensure_key(state).and_then(|k| vault::list_with_key(&k)) {
             Ok(data) => (Response::ok(Some(data)), ConnOutcome::Continue),
-            Err(e) => (Response::err(e), ConnOutcome::Continue),
+            Err(e) => (Response::err_chain(&e), ConnOutcome::Continue),
         },
         "get" => {
             let id = req.id.clone().unwrap_or_default();
@@ -238,7 +242,7 @@ fn process(req: &Request, state: &Shared) -> (Response, ConnOutcome) {
             let r = ensure_key(state).and_then(|k| vault::get_field_with_key(&k, &id, &field));
             match r {
                 Ok(data) => (Response::ok(Some(data)), ConnOutcome::Continue),
-                Err(e) => (Response::err(e), ConnOutcome::Continue),
+                Err(e) => (Response::err_chain(&e), ConnOutcome::Continue),
             }
         }
         other => (Response::err(format!("unknown command: {other}")), ConnOutcome::Continue),

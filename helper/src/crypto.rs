@@ -106,7 +106,8 @@ impl SymmetricKey {
     }
 
     /// Encrypt plaintext into the base64 parts of a type-2 EncString.
-    /// The desktop expects these as an object `{encryptionType,data,iv,mac}`.
+    /// Older desktop builds may expect these as an object
+    /// `{encryptionType,data,iv,mac}`.
     pub fn encrypt_parts(&self, plaintext: &[u8]) -> EncParts {
         let mut iv = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut iv);
@@ -124,6 +125,14 @@ impl SymmetricKey {
             data: B64.encode(ct),
             mac: B64.encode(tag),
         }
+    }
+
+    /// Encrypt plaintext into the canonical `2.iv|data|mac` EncString form.
+    /// Newer desktop builds expect the encrypted `message` payload as this raw
+    /// string rather than the expanded object form.
+    pub fn encrypt_to_string(&self, plaintext: &[u8]) -> String {
+        let parts = self.encrypt_parts(plaintext);
+        format!("2.{}|{}|{}", parts.iv, parts.data, parts.mac)
     }
 
     /// Decrypt a type-2 EncString into plaintext bytes (verifies the MAC).
