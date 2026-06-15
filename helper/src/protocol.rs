@@ -19,7 +19,9 @@
 //!     within 10s of the desktop clock (else "Received a too old message").
 //!   - Unlock command is `"unlockWithBiometricsForUser"` with `userId`.
 //!   - Reply (decrypted): `{"command":"unlockWithBiometricsForUser","response":true,
-//!     "userKeyB64":"..."}`. That user key doubles as the `bw` BW_SESSION.
+//!     "userKeyB64":"..."}`. That user key is the symmetric key that decrypts the
+//!     vault; the agent holds it in memory and uses it directly (it is NOT passed
+//!     to `bw` or anything else — see `agent.rs` / `vault.rs`).
 //!
 //! LIVE-ITERATION note: if the encrypted step gets no reply, the desktop may want
 //! `message` as an object rather than the EncString string — flip `send_encrypted`.
@@ -174,7 +176,8 @@ impl Session {
         }
     }
 
-    /// Trigger a biometric unlock; returns the user key (base64) = BW_SESSION value.
+    /// Trigger a biometric unlock; returns the vault user key (base64). The
+    /// caller holds it in memory only — it is never written out or passed on.
     pub fn biometric_unlock(&mut self) -> Result<String> {
         self.send_encrypted(json!({
             "command": "unlockWithBiometricsForUser",
