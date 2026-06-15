@@ -34,13 +34,74 @@ local function is_windows()
 end
 
 ----------------------------------------------------------------------
+-- locating the helper binary
+----------------------------------------------------------------------
+
+-- This plugin ships prebuilt helper binaries under bin/<target_triple>/. When
+-- installed via `wezterm.plugin.require`, the whole repo (binary included) is
+-- cloned locally — so there's nothing to download, and the binary sits next to
+-- the source that produced it. Users who'd rather build from source just point
+-- `helper` at their own binary; that always wins.
+
+local function path_exists(path)
+  local ok, f = pcall(io.open, path, 'r')
+  if ok and f then
+    f:close()
+    return true
+  end
+  return false
+end
+
+-- Absolute path to this plugin's local clone via wezterm.plugin.list(), or nil
+-- if it isn't a registered plugin (e.g. loaded with dofile during development).
+local function plugin_dir()
+  local ok, list = pcall(function()
+    return wezterm.plugin.list()
+  end)
+  if not ok or type(list) ~= 'table' then
+    return nil
+  end
+  for _, p in ipairs(list) do
+    local hay = ((p.url or '') .. ' ' .. (p.component or '')):lower()
+    if hay:find('bitwarden', 1, true) then
+      return p.plugin_dir
+    end
+  end
+  return nil
+end
+
+-- The bundled binary for this platform (bin/<target_triple>/bw-wez), if present.
+local function bundled_helper()
+  local dir = plugin_dir()
+  if not dir then
+    return nil
+  end
+  local triple = wezterm.target_triple or ''
+  local sep = is_windows() and '\\' or '/'
+  local exe = is_windows() and 'bw-wez.exe' or 'bw-wez'
+  local path = table.concat({ dir, 'bin', triple, exe }, sep)
+  return path_exists(path) and path or nil
+end
+
+-- Resolve which helper to run: an explicit `helper` (build-from-source or the
+-- mock) wins; else the bundled binary for this platform; else `bw-wez` on PATH.
+local function resolve_helper(opts)
+  if type(opts.helper) == 'string' and opts.helper ~= '' then
+    return opts.helper
+  end
+  return bundled_helper() or 'bw-wez'
+end
+
+----------------------------------------------------------------------
 -- config
 ----------------------------------------------------------------------
 
 local defaults = {
-  -- Path to the helper binary. Override with the mock during development, e.g.
-  -- helper = '/path/to/bitwarden.wez/mock/bw-wez'
-  helper = 'bw-wez',
+  -- Path to the helper binary. Leave unset to auto-detect: the plugin uses the
+  -- prebuilt binary bundled in this repo for your platform (bin/<target_triple>/),
+  -- falling back to `bw-wez` on PATH. Set it to build from source or use the
+  -- mock, e.g. helper = '/path/to/bitwarden.wez/helper/target/release/bw-wez'
+  helper = nil,
   -- Extra args always passed before the subcommand (e.g. {'--profile','work'}).
   helper_args = {},
 
@@ -308,6 +369,9 @@ end
 
 function M.apply_to_config(config, user_opts)
   local opts = merge(merge({}, defaults), user_opts or {})
+  -- Resolve the helper now (bundled binary, explicit override, or PATH) so the
+  -- keybind callbacks and the M.opts stash all share the same absolute path.
+  opts.helper = resolve_helper(opts)
 
   config.keys = config.keys or {}
 

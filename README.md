@@ -160,6 +160,25 @@ understand *why* a decision was made, open an issue / discussion on the repo and
 ask. We'd rather answer a hard question than have you guess. Independent review
 and PRs are very welcome.
 
+### The binary we ship
+
+The plugin bundles a prebuilt helper (in `bin/<target_triple>/`) so install is
+just `wezterm.plugin.require` — nothing to download. Don't want to run a binary
+you didn't build? Two answers:
+
+- **Verify it.** Released binaries are built in **GitHub Actions from the tagged
+  commit** (not a maintainer's laptop), published with **SHA-256 checksums** and
+  **SLSA build provenance**. Tie a binary to its source with one command:
+  ```sh
+  gh attestation verify bin/<triple>/bw-wez --repo usrivastava92/bitwarden.wez
+  ```
+  Reproducible builds are a goal, so you can rebuild the tag (`cargo build
+  --release --locked`) and diff the hash. `Cargo.lock` is committed for exactly
+  this reason. Details in `bin/README.md`.
+- **Or skip it.** Build from source and set `helper` to your own binary — it
+  overrides the bundled one. The plugin's own Lua is always source you can read
+  (it's cloned from this repo); only the helper is compiled.
+
 ---
 
 ## How it works
@@ -220,35 +239,41 @@ copies the (fake) password.
 
 ## Real setup (macOS)
 
-Just two things — no `bw` CLI, no accounts to wire up:
+Really just one thing to install — the helper ships *with* the plugin, so there's
+nothing to build or download.
 
 1. **Bitwarden desktop app** — install it (the **Mac App Store** build exposes
    Touch ID), sign in, and in *Settings* enable:
    - ✅ **Allow browser integration**
    - ✅ **Unlock with Touch ID**
 
-   Keep the app running (it must be running for biometric unlock anyway). It
-   keeps its own vault synced, so the picker is always current — there's nothing
-   else to sync.
+   Keep it running (it must be running for biometric unlock anyway); it syncs its
+   own vault, so the picker is always current.
 
-2. **The helper** — build it once:
-   ```sh
-   cd helper
-   cargo build --release
-   # → helper/target/release/bw-wez   (put it on PATH, or point `helper` at it)
+2. **The plugin** — point WezTerm at the repo. `wezterm.plugin.require` clones it
+   locally, **prebuilt helper binary included**, and the plugin auto-selects the
+   right one for your platform (`bin/<target_triple>/`):
+
+   ```lua
+   local bw = wezterm.plugin.require 'https://github.com/usrivastava92/bitwarden.wez'
+   bw.apply_to_config(config, { key = 'b', mods = 'CTRL|SHIFT' })
    ```
-   (Prebuilt binaries, so you can skip this step too, are on the roadmap.)
-
-Then point the plugin at the real helper (drop the `mock/` path):
-
-```lua
-bw.apply_to_config(config, {
-  helper = '/abs/path/to/bw-wez',
-  key = 'b', mods = 'CTRL|SHIFT',
-})
-```
 
 Press your keybind → Touch ID → pick an item → password on your clipboard.
+
+> **Prefer to build it yourself?** Recommended if you'd rather not run a prebuilt
+> binary (see *"Why you can trust this → The binary we ship"*). Build the helper
+> and point `helper` at it — that always overrides the bundled one:
+>
+> ```sh
+> cd helper && cargo build --release
+> ```
+> ```lua
+> bw.apply_to_config(config, {
+>   helper = '/abs/path/to/bitwarden.wez/helper/target/release/bw-wez',
+>   key = 'b', mods = 'CTRL|SHIFT',
+> })
+> ```
 
 The helper finds the desktop app's vault automatically; set `BW_WEZ_VAULT_DATA`
 only if yours lives in a non-standard place. See `docs/setup-macos.md` for
@@ -262,7 +287,8 @@ All options, shown with example values:
 
 ```lua
 bw.apply_to_config(config, {
-  helper = 'bw-wez',                 -- path to the helper binary (or the mock)
+  -- helper: omit to use the bundled binary (bin/<target_triple>/); set it to
+  -- build-from-source or the mock, e.g. '/abs/.../helper/target/release/bw-wez'
   helper_args = {},                  -- extra args before the subcommand
 
   key = 'b', mods = 'CTRL|SHIFT',    -- main picker; runs default_action on Enter
@@ -317,7 +343,8 @@ agent). Non-zero exit = failure; the human-readable reason goes to stderr.
 - [x] Organization items (decrypt org keys via the account RSA private key)
 - [x] In-memory agent (mlock'd key, idle-lock, 0600 socket — no on-disk key)
 - [x] Read the desktop app's own synced vault directly — **no `bw` CLI dependency** (freshness handled by the app)
-- [ ] Prebuilt helper binaries (skip the Rust build) via GitHub Releases
+- [x] Bundle the prebuilt helper in the repo — installs with `wezterm.plugin.require`, no build/download (build-from-source still first-class)
+- [ ] CI-built, checksummed & provenance-attested release binaries (once on GitHub)
 - [ ] Linux (polkit) and Windows (Hello) transports
 - [ ] Provider B: self-contained biometric-gated key + official SDK (deferred)
 

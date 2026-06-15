@@ -1,10 +1,8 @@
 # Rust
 /helper/target/
 **/*.rs.bk
-Cargo.lock
-
-# bw-wez runtime
-**/bw-wez/session
+# NB: Cargo.lock IS committed — it pins exact dependency versions, which the
+# reproducible-build / binary-provenance story depends on.
 
 # Lavish review artifacts
 /.lavish/
