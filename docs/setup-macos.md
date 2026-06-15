@@ -65,10 +65,9 @@ exactly like the browser extension.
 2. `biometricUnlock` (encrypted) — the desktop app shows Touch ID and returns
    the user key, which the agent holds in memory and uses to decrypt the vault.
 
-Current Bitwarden desktop builds expect the encrypted `message` payload as the
-raw EncString (`"2.iv|data|mac"`). Older builds may expect the expanded object
-form (`{encryptionType,data,iv,mac}`). The helper now tries the string form
-first and reconnects with the object form as a compatibility fallback.
+The encrypted `message` payload is sent as a full EncString object carrying both
+the canonical `encryptedString` field and the expanded parts (`data`/`iv`/`mac`),
+matching what the desktop itself emits. This works on current and older builds.
 
 ## `LIVE-ITERATION` checklist
 
@@ -77,15 +76,15 @@ handshake fails, these are the likely culprits (all marked in the source):
 
 | Symptom | File | What to try |
 | --- | --- | --- |
-| Connection refused / proxy not found | `transport.rs` | Confirm the `desktop_proxy` path; set `BW_WEZ_DESKTOP_PROXY=/abs/path`. |
-| Rejected on connect / fingerprint prompt | `transport.rs`, `protocol.rs` | Approve the client in the desktop app; confirm `EXTENSION_ORIGIN` matches an entry in your manifest's `allowed_origins`. |
-| `setupEncryption reply missing sharedSecret` | `protocol.rs` | The field may be `sharedKey` or nested — log the raw reply and adjust. |
-| Touch ID never appears and the helper hangs | `transport.rs`, `protocol.rs` | Check whether the desktop expects an encrypted string or object payload. The helper now retries both and fails with a timeout instead of hanging forever. |
+| Connection refused / proxy not found | `transport/native_messaging.rs` | Confirm the `desktop_proxy` path; set `BW_WEZ_DESKTOP_PROXY=/abs/path`. |
+| Rejected on connect / fingerprint prompt | `transport/native_messaging.rs`, `protocol.rs` | Approve the client in the desktop app; confirm `EXTENSION_ORIGIN` matches an entry in your manifest's `allowed_origins`. |
+| `setupEncryption` reply missing `sharedSecret` | `protocol.rs` | The field may be `sharedKey` or nested — log the raw reply and adjust. |
+| Touch ID never appears and the helper hangs | `transport/socket.rs`, `protocol.rs` | Confirm the socket path; check the desktop app is running, unlocked, and has browser integration enabled. If the encrypted payload is missing `encryptedString`, the desktop's `decryptString` silently drops it. |
 | `MAC verification failed` / OAEP decrypt error | `crypto.rs` | Try OAEP with SHA-256 instead of SHA-1; confirm the public-key encoding the desktop expects. |
 | `expected a 64-byte symmetric key` | `crypto.rs` | The key may be 32 bytes needing HKDF-Expand to 64. |
 | `unlock reply missing user key` | `protocol.rs` | Key field is `userKeyB64` (newer) or `keyB64` (older); log the reply. |
 
-Tip: temporarily log every frame in `transport.rs::read_json` to see exactly
+Tip: build with `BW_WEZ_DEBUG=1` to see every frame read from the transport.
 what your desktop version sends, then align the structs.
 
 ## Useful env vars
