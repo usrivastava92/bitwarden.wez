@@ -134,11 +134,7 @@ impl Session {
                         "desktop disconnected during handshake — make sure the desktop vault is unlocked"
                     ))
                 }
-                _ => {
-                    if transport_kind == TransportKind::DirectSocket && !sent {
-                        sent = true;
-                    }
-                }
+                _ => {}
             }
         };
 

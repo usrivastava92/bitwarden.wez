@@ -54,18 +54,6 @@ pub fn socket_candidates() -> Vec<PathBuf> {
     candidates
 }
 
-pub fn connect() -> Result<Box<dyn TransportIO>> {
-    match connect_socket() {
-        Ok(t) => Ok(t),
-        Err(e) => {
-            if debug_enabled() {
-                eprintln!("[bw-wez] direct socket failed ({e:#}); fallback to desktop_proxy");
-            }
-            connect_native_messaging()
-        }
-    }
-}
-
 pub fn connect_socket() -> Result<Box<dyn TransportIO>> {
     let candidates = socket_candidates();
     if !candidates.is_empty() && debug_enabled() {

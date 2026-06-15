@@ -67,6 +67,7 @@ fn handle_client(stream: &mut UnixStream) -> Result<(), Box<dyn std::error::Erro
             if buffer.len() < 4 {
                 break;
             }
+            buffer.make_contiguous();
             let len_bytes: [u8; 4] = {
                 let mut b = [0u8; 4];
                 let slice = buffer.as_slices().0;
