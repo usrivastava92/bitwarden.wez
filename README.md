@@ -61,12 +61,18 @@ local config = wezterm.config_builder()
 
 local bw = wezterm.plugin.require 'https://github.com/usrivastava92/bitwarden.wez'
 
-bw.apply_to_config(config, {
-  key = 'b',
-  mods = 'CTRL|SHIFT',
-})
+bw.apply_to_config(config)
 
 return config
+```
+
+All options have sensible defaults. Override only what you need:
+
+```lua
+bw.apply_to_config(config, {
+  default_action = 'type_password',
+  clear_clipboard_seconds = 0,
+})
 ```
 
 ### Updating
@@ -124,14 +130,12 @@ local bw = wezterm.plugin.require 'file:///path/to/bitwarden.wez'
 
 bw.apply_to_config(config, {
   helper = '/path/to/bitwarden.wez/mock/bw-wez',
-  key = 'b',
-  mods = 'CTRL|SHIFT',
 })
 
 return config
 ```
 
-> Avoid `Ctrl+Shift+P` because WezTerm already uses it for the command palette.
+> The default keybinding is `Ctrl+Shift+B`.
 
 ### Build from source instead of using the bundled helper
 
@@ -143,8 +147,6 @@ cargo build --release
 ```lua
 bw.apply_to_config(config, {
   helper = '/abs/path/to/bitwarden.wez/helper/target/release/bw-wez',
-  key = 'b',
-  mods = 'CTRL|SHIFT',
 })
 ```
 
@@ -156,8 +158,6 @@ bw.apply_to_config(config, {
 bw.apply_to_config(config, {
   helper_args = {},
 
-  key = 'b',
-  mods = 'CTRL|SHIFT',
   default_action = 'copy_password', -- copy_password | type_password | copy_username | copy_totp | menu
 
   menu_key = 'g',
@@ -277,7 +277,7 @@ If you prefer source-first trust, that path is fully supported.
 The sensitive parts are intentionally easy to locate:
 
 - `plugin/init.lua`: picker UI, keybinds, clipboard handling, notifications
-- `helper/src/transport.rs`: launches `desktop_proxy`, local stdio transport only
+- `helper/src/transport/`: socket (`SocketTransport`) and native-messaging (`NativeMessagingTransport`) transports
 - `helper/src/protocol.rs`: handshake and biometric unlock request
 - `helper/src/vault.rs`: reads and decrypts Bitwarden Desktop's encrypted `data.json`
 - `helper/src/agent.rs`: in-memory key handling, `mlock`, idle lock, local socket
@@ -370,7 +370,7 @@ The codebase is intentionally small and easy to inspect.
 
 - Start with `plugin/init.lua` for the WezTerm side
 - Read `helper/src/agent.rs` and `helper/src/vault.rs` for secret handling
-- Read `helper/src/transport.rs` and `helper/src/protocol.rs` for the desktop bridge
+- Read `helper/src/transport/` and `helper/src/protocol.rs` for the desktop bridge
 - Open an issue if you want to audit a specific claim or workflow
 
 Security review, bug reports, and PRs are welcome.

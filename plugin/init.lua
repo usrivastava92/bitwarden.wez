@@ -106,7 +106,7 @@ local defaults = {
   helper_args = {},
 
   -- Main keybinding: open the picker and run `default_action` on the chosen item.
-  key = 'p',
+  key = 'b',
   mods = 'CTRL|SHIFT',
 
   -- Optional second keybinding that opens the picker then shows an action

@@ -8,20 +8,18 @@
 //!   - `bw-wez list|get|status|unlock|lock|stop` are thin clients that forward
 //!     to the agent. `list`/`get`/`unlock` auto-spawn the agent if needed.
 //!
+//! Transport: the helper connects to the Bitwarden Desktop app via direct IPC
+//! socket (`s.bw`) as the primary path, falling back to the legacy
+//! `desktop_proxy` native-messaging path when the socket is unavailable.
+//!
 //! JSON contract (interchangeable with `mock/bw-wez`):
 //!   bw-wez status                      -> {"status": "unlocked"|"locked"}
 //!   bw-wez list                        -> JSON array of {id,name,username,folder,uri}
 //!   bw-wez get <id> --field <name>     -> raw value on stdout
 //!   bw-wez unlock | lock | stop        -> status JSON
 
-mod agent;
-mod crypto;
-mod protocol;
-mod totp;
-mod transport;
-mod vault;
-
-use agent::Request;
+use bw_wez::agent;
+use bw_wez::agent::Request;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -90,7 +88,7 @@ fn run(cli: Cli) -> i32 {
         Command::Agent => match agent::run_agent() {
             Ok(()) => 0,
             Err(e) => {
-                eprintln!("{e}");
+                eprintln!("{e:#}");
                 1
             }
         },
@@ -133,7 +131,7 @@ fn forward(req: Request, auto_spawn: bool, _raw: bool) -> i32 {
             1
         }
         Err(e) => {
-            eprintln!("{e}");
+            eprintln!("{e:#}");
             1
         }
     }
@@ -157,7 +155,7 @@ fn status_cmd(req: Request, auto_spawn: bool) -> i32 {
             0
         }
         Err(e) => {
-            eprintln!("{e}");
+            eprintln!("{e:#}");
             1
         }
     }

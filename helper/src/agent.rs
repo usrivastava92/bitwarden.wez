@@ -30,7 +30,11 @@ pub struct Request {
 
 impl Request {
     pub fn new(cmd: &str) -> Self {
-        Request { cmd: cmd.to_string(), id: None, field: None }
+        Request {
+            cmd: cmd.to_string(),
+            id: None,
+            field: None,
+        }
     }
 }
 
@@ -45,10 +49,26 @@ pub struct Response {
 
 impl Response {
     fn ok(data: Option<String>) -> Self {
-        Response { ok: true, data, error: None }
+        Response {
+            ok: true,
+            data,
+            error: None,
+        }
     }
     fn err(e: impl ToString) -> Self {
-        Response { ok: false, data: None, error: Some(e.to_string()) }
+        Response {
+            ok: false,
+            data: None,
+            error: Some(e.to_string()),
+        }
+    }
+
+    fn err_chain(e: &anyhow::Error) -> Self {
+        Response {
+            ok: false,
+            data: None,
+            error: Some(format!("{e:#}")),
+        }
     }
 }
 
@@ -90,7 +110,10 @@ impl KeyHolder {
         unsafe {
             libc::mlock(key.as_ptr() as *const libc::c_void, key.len());
         }
-        KeyHolder { key, last_used: Instant::now() }
+        KeyHolder {
+            key,
+            last_used: Instant::now(),
+        }
     }
 }
 
@@ -163,7 +186,11 @@ pub fn run_agent() -> Result<()> {
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_secs(15));
             let mut s = state.lock().unwrap();
-            let stale = s.holder.as_ref().map(|h| h.last_used.elapsed() > timeout).unwrap_or(false);
+            let stale = s
+                .holder
+                .as_ref()
+                .map(|h| h.last_used.elapsed() > timeout)
+                .unwrap_or(false);
             if stale {
                 s.holder = None;
             }
@@ -216,7 +243,11 @@ fn handle_conn(stream: UnixStream, state: &Shared) -> ConnOutcome {
 fn process(req: &Request, state: &Shared) -> (Response, ConnOutcome) {
     match req.cmd.as_str() {
         "status" => {
-            let s = if is_unlocked(state) { "unlocked" } else { "locked" };
+            let s = if is_unlocked(state) {
+                "unlocked"
+            } else {
+                "locked"
+            };
             (Response::ok(Some(s.to_string())), ConnOutcome::Continue)
         }
         "lock" => {
@@ -226,11 +257,11 @@ fn process(req: &Request, state: &Shared) -> (Response, ConnOutcome) {
         "stop" => (Response::ok(Some("stopped".into())), ConnOutcome::Stop),
         "unlock" => match ensure_key(state) {
             Ok(_) => (Response::ok(Some("unlocked".into())), ConnOutcome::Continue),
-            Err(e) => (Response::err(e), ConnOutcome::Continue),
+            Err(e) => (Response::err_chain(&e), ConnOutcome::Continue),
         },
         "list" => match ensure_key(state).and_then(|k| vault::list_with_key(&k)) {
             Ok(data) => (Response::ok(Some(data)), ConnOutcome::Continue),
-            Err(e) => (Response::err(e), ConnOutcome::Continue),
+            Err(e) => (Response::err_chain(&e), ConnOutcome::Continue),
         },
         "get" => {
             let id = req.id.clone().unwrap_or_default();
@@ -238,10 +269,13 @@ fn process(req: &Request, state: &Shared) -> (Response, ConnOutcome) {
             let r = ensure_key(state).and_then(|k| vault::get_field_with_key(&k, &id, &field));
             match r {
                 Ok(data) => (Response::ok(Some(data)), ConnOutcome::Continue),
-                Err(e) => (Response::err(e), ConnOutcome::Continue),
+                Err(e) => (Response::err_chain(&e), ConnOutcome::Continue),
             }
         }
-        other => (Response::err(format!("unknown command: {other}")), ConnOutcome::Continue),
+        other => (
+            Response::err(format!("unknown command: {other}")),
+            ConnOutcome::Continue,
+        ),
     }
 }
 

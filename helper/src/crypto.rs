@@ -106,7 +106,8 @@ impl SymmetricKey {
     }
 
     /// Encrypt plaintext into the base64 parts of a type-2 EncString.
-    /// The desktop expects these as an object `{encryptionType,data,iv,mac}`.
+    /// Older desktop builds may expect these as an object
+    /// `{encryptionType,data,iv,mac}`.
     pub fn encrypt_parts(&self, plaintext: &[u8]) -> EncParts {
         let mut iv = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut iv);
@@ -128,9 +129,9 @@ impl SymmetricKey {
 
     /// Decrypt a type-2 EncString into plaintext bytes (verifies the MAC).
     pub fn decrypt(&self, enc_string: &str) -> Result<Vec<u8>> {
-        let body = enc_string
-            .strip_prefix("2.")
-            .ok_or_else(|| anyhow!("unsupported EncString type (expected '2.'): {enc_string:.8}…"))?;
+        let body = enc_string.strip_prefix("2.").ok_or_else(|| {
+            anyhow!("unsupported EncString type (expected '2.'): {enc_string:.8}…")
+        })?;
         let mut parts = body.split('|');
         let iv = B64.decode(parts.next().ok_or_else(|| anyhow!("missing iv"))?)?;
         let ct = B64.decode(parts.next().ok_or_else(|| anyhow!("missing ciphertext"))?)?;
