@@ -51,6 +51,8 @@ enum Command {
     },
     /// Force a biometric unlock now (triggers Touch ID via the desktop app).
     Unlock,
+    /// Refresh the local encrypted vault now (`bw sync`); no unlock needed.
+    Sync,
     /// Drop the in-memory key (re-locks the vault).
     Lock,
     /// Stop the background agent.
@@ -107,6 +109,7 @@ fn run(cli: Cli) -> i32 {
 
         Command::List => forward(Request::new("list"), true, /*raw*/ true),
         Command::Unlock => status_cmd(Request::new("unlock"), true),
+        Command::Sync => status_cmd(Request::new("sync"), true),
         Command::Lock => status_cmd(Request::new("lock"), false),
         Command::Stop => status_cmd(Request::new("stop"), false),
 

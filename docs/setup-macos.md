@@ -62,9 +62,18 @@ what your desktop version sends, then align the structs.
 
 - `BW_WEZ_DESKTOP_PROXY` — override the proxy binary path.
 - `BW_WEZ_BW_DATA` / `BITWARDENCLI_APPDATA_DIR` — override where bw's `data.json` lives.
+- `BW_WEZ_BW_BIN` — path to the `bw` CLI (set this if WezTerm was launched from
+  the GUI and can't find Homebrew's `bw` on its PATH).
 - `BW_WEZ_IDLE_SECS` — agent idle-lock timeout in seconds (default 900).
+- `BW_WEZ_SYNC_SECS` — background `bw sync` interval in seconds (default 1800;
+  `0` disables auto-sync).
 - `BW_WEZ_AGENT_SOCK` — override the agent's unix socket path.
 - `BW_WEZ_USER_ID` — override the desktop account GUID used in the handshake.
 
-Agent commands: `bw-wez status` (unlocked/locked), `bw-wez lock` (drop the key
-now), `bw-wez stop` (kill the agent). The agent auto-spawns on first use.
+> The agent reads these env vars **when it spawns** (first use). To change one,
+> set it, then `bw-wez stop` so the next request respawns the agent with it.
+
+Agent commands: `bw-wez status` (unlocked/locked), `bw-wez sync` (refresh the
+local vault now — no Touch ID), `bw-wez lock` (drop the key now), `bw-wez stop`
+(kill the agent). The agent auto-spawns on first use and, while alive, runs
+`bw sync` on the `BW_WEZ_SYNC_SECS` interval to keep the vault fresh.

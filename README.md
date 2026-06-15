@@ -76,9 +76,12 @@ copies the (fake) password.
    sign in, and enable in *Settings*:
    - **Allow browser integration**
    - **Unlock with Touch ID**
-2. **Install the `bw` CLI** (used once to sync your encrypted vault to disk;
-   not invoked on reads): `brew install bitwarden-cli`, then `bw login`. Re-run
-   `bw sync` to refresh. You do **not** need to export the `BW_SESSION` it prints.
+2. **Install the `bw` CLI** (syncs your encrypted vault to disk; never invoked
+   on reads): `brew install bitwarden-cli`, then `bw login`. You do **not** need
+   to export the `BW_SESSION` it prints. After login, the agent keeps the vault
+   fresh on its own — it runs `bw sync` in the background every 30 min
+   (`BW_WEZ_SYNC_SECS`; `0` disables) and on demand via `bw-wez sync`. Syncing
+   needs no unlock, so it never prompts for Touch ID.
 3. **Build the helper:**
    ```sh
    cd helper
@@ -138,6 +141,7 @@ interchangeable (and you can write your own backend):
 | `bw-wez status` | `{"status":"unlocked"\|"locked"\|"no-desktop"\|"error","message"?}` |
 | `bw-wez list` | JSON array of `{id,name,username,folder,uri}` |
 | `bw-wez get <id> --field <password\|username\|totp\|uri\|notes>` | raw value on stdout |
+| `bw-wez sync` | `{"status":"synced"}` — refresh the local vault (`bw sync`); no unlock |
 
 Non-zero exit = failure; the human-readable reason goes to stderr.
 
@@ -164,6 +168,6 @@ Non-zero exit = failure; the human-readable reason goes to stderr.
 - [x] **Biometric unlock + in-process vault decryption working on macOS** (personal logins)
 - [x] Organization items (decrypt org keys via the account RSA private key)
 - [x] In-memory agent (mlock'd key, idle-lock, 0600 socket — no on-disk key)
-- [ ] `bw sync` freshness / auto-sync
+- [x] `bw sync` freshness / auto-sync (background interval + manual `bw-wez sync`)
 - [ ] Linux (polkit) and Windows (Hello) transports
 - [ ] Provider B: self-contained biometric-gated key + official SDK (deferred)

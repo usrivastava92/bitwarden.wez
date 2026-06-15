@@ -18,6 +18,7 @@ use crate::crypto::SymmetricKey;
 use crate::vault;
 
 const DEFAULT_IDLE_SECS: u64 = 900; // 15 minutes
+const DEFAULT_SYNC_SECS: u64 = 1800; // 30 minutes
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Request {
@@ -72,6 +73,15 @@ fn idle_timeout() -> Duration {
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_IDLE_SECS);
     Duration::from_secs(secs)
+}
+
+/// Auto-sync interval, or `None` if disabled (`BW_WEZ_SYNC_SECS=0`).
+fn sync_interval() -> Option<Duration> {
+    let secs = std::env::var("BW_WEZ_SYNC_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_SYNC_SECS);
+    (secs > 0).then(|| Duration::from_secs(secs))
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +165,9 @@ pub fn run_agent() -> Result<()> {
     set_socket_perms(&sock);
 
     let state: Shared = Arc::new(Mutex::new(State { holder: None }));
+    // Serializes `bw sync` invocations so the background thread and a manual
+    // `bw-wez sync` never run two syncs against the same data.json at once.
+    let sync_guard: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
 
     // Idle reaper: drop the key after inactivity.
     {
@@ -170,10 +183,29 @@ pub fn run_agent() -> Result<()> {
         });
     }
 
+    // Auto-sync: keep bw's encrypted data.json fresh in the background. This
+    // needs no key (bw can sync while locked), so it runs regardless of lock
+    // state. Reads always re-read data.json, so a fresh sync shows up at once.
+    if let Some(interval) = sync_interval() {
+        let sync = sync_guard.clone();
+        std::thread::spawn(move || {
+            // A brief delay so the first sync doesn't race the spawn-time read.
+            std::thread::sleep(Duration::from_secs(3));
+            loop {
+                if let Err(e) = do_sync(&sync) {
+                    if std::env::var("BW_WEZ_DEBUG").is_ok() {
+                        eprintln!("bw-wez auto-sync: {e}");
+                    }
+                }
+                std::thread::sleep(interval);
+            }
+        });
+    }
+
     for conn in listener.incoming() {
         let Ok(stream) = conn else { continue };
         // Sequential handling is fine for a single-user picker.
-        if handle_conn(stream, &state) == ConnOutcome::Stop {
+        if handle_conn(stream, &state, &sync_guard) == ConnOutcome::Stop {
             let _ = std::fs::remove_file(&sock);
             return Ok(());
         }
@@ -187,7 +219,7 @@ enum ConnOutcome {
     Stop,
 }
 
-fn handle_conn(stream: UnixStream, state: &Shared) -> ConnOutcome {
+fn handle_conn(stream: UnixStream, state: &Shared, sync: &Arc<Mutex<()>>) -> ConnOutcome {
     let mut reader = match stream.try_clone() {
         Ok(s) => BufReader::new(s),
         Err(_) => return ConnOutcome::Continue,
@@ -204,12 +236,12 @@ fn handle_conn(stream: UnixStream, state: &Shared) -> ConnOutcome {
         }
     };
 
-    let (resp, outcome) = process(&req, state);
+    let (resp, outcome) = process(&req, state, sync);
     let _ = reply(stream, &resp);
     outcome
 }
 
-fn process(req: &Request, state: &Shared) -> (Response, ConnOutcome) {
+fn process(req: &Request, state: &Shared, sync: &Arc<Mutex<()>>) -> (Response, ConnOutcome) {
     match req.cmd.as_str() {
         "status" => {
             let s = if is_unlocked(state) { "unlocked" } else { "locked" };
@@ -220,6 +252,10 @@ fn process(req: &Request, state: &Shared) -> (Response, ConnOutcome) {
             (Response::ok(Some("locked".into())), ConnOutcome::Continue)
         }
         "stop" => (Response::ok(Some("stopped".into())), ConnOutcome::Stop),
+        "sync" => match do_sync(sync) {
+            Ok(_) => (Response::ok(Some("synced".into())), ConnOutcome::Continue),
+            Err(e) => (Response::err(e), ConnOutcome::Continue),
+        },
         "unlock" => match ensure_key(state) {
             Ok(_) => (Response::ok(Some("unlocked".into())), ConnOutcome::Continue),
             Err(e) => (Response::err(e), ConnOutcome::Continue),
@@ -251,6 +287,51 @@ fn reply(mut stream: UnixStream, resp: &Response) -> Result<()> {
 fn set_socket_perms(sock: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let _ = std::fs::set_permissions(sock, std::fs::Permissions::from_mode(0o600));
+}
+
+// ---------------------------------------------------------------------------
+// sync (refresh bw's encrypted data.json)
+// ---------------------------------------------------------------------------
+
+/// Run `bw sync` to refresh the encrypted vault on disk. Serialized via `sync`
+/// so the background thread and a manual `bw-wez sync` never overlap. Needs no
+/// session — `bw` can sync while the vault is locked.
+fn do_sync(sync: &Arc<Mutex<()>>) -> Result<String> {
+    let _guard = sync.lock().unwrap();
+    let bw = find_bw();
+    let out = Command::new(&bw)
+        .arg("sync")
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| {
+            format!("running `{bw} sync` (set BW_WEZ_BW_BIN if the bw CLI isn't on PATH)")
+        })?;
+    if out.status.success() {
+        Ok("synced".into())
+    } else {
+        let msg = String::from_utf8_lossy(&out.stderr);
+        let msg = msg.trim();
+        Err(anyhow!(
+            "bw sync failed: {}",
+            if msg.is_empty() { "is the bw CLI logged in? (`bw login`)" } else { msg }
+        ))
+    }
+}
+
+/// Locate the `bw` CLI. GUI-launched WezTerm often has a minimal PATH that
+/// misses Homebrew, so probe the usual install dirs before falling back to PATH.
+fn find_bw() -> String {
+    if let Ok(p) = std::env::var("BW_WEZ_BW_BIN") {
+        if !p.is_empty() {
+            return p;
+        }
+    }
+    for p in ["/opt/homebrew/bin/bw", "/usr/local/bin/bw"] {
+        if Path::new(p).exists() {
+            return p.to_string();
+        }
+    }
+    "bw".to_string()
 }
 
 // ---------------------------------------------------------------------------
