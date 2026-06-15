@@ -1,0 +1,64 @@
+#!/usr/bin/env sh
+# bitwarden.wez mock backend.
+#
+# Implements the exact JSON contract the real `bw-wez` helper will expose, but
+# with hard-coded fake data. Point the plugin at this during development to
+# exercise the full picker UX without Rust, `bw`, or the Bitwarden desktop app:
+#
+#   bw.apply_to_config(config, { helper = '/abs/path/to/bitwarden.wez/mock/bw-wez' })
+#
+# Contract:
+#   bw-wez status                       -> {"status":"unlocked"}
+#   bw-wez list                         -> JSON array of {id,name,username,folder,uri}
+#   bw-wez get <id> --field <name>      -> raw field value on stdout (exit 0)
+#
+# Anything unknown exits non-zero with a message on stderr.
+
+set -eu
+
+cmd="${1:-}"
+
+case "$cmd" in
+  status)
+    printf '{"status":"unlocked"}\n'
+    ;;
+
+  list)
+    cat <<'JSON'
+[
+  {"id":"11111111-1111-1111-1111-111111111111","name":"GitHub / personal","username":"usrivastava","folder":"Dev","uri":"https://github.com"},
+  {"id":"22222222-2222-2222-2222-222222222222","name":"GitLab / work","username":"u.srivastava","folder":"Work","uri":"https://gitlab.com"},
+  {"id":"33333333-3333-3333-3333-333333333333","name":"git.atlassian","username":"bot-token","folder":"Work","uri":"https://git.atlassian.com"},
+  {"id":"44444444-4444-4444-4444-444444444444","name":"AWS root","username":"root@example.com","folder":"Cloud","uri":"https://console.aws.amazon.com"},
+  {"id":"55555555-5555-5555-5555-555555555555","name":"Personal email","username":"me@example.com","folder":"Personal","uri":"https://mail.example.com"}
+]
+JSON
+    ;;
+
+  get)
+    id="${2:-}"
+    field="password"
+    # parse `--field <name>`
+    shift 2 2>/dev/null || true
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --field) field="${2:-password}"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+
+    case "$field" in
+      password) printf 'mock-password-for-%s-%s\n' "$id" "$(date +%s)" ;;
+      username) printf 'mock-username\n' ;;
+      totp)     printf '123456\n' ;;
+      uri)      printf 'https://example.com\n' ;;
+      notes)    printf 'mock secure note\n' ;;
+      *) echo "unknown field: $field" >&2; exit 2 ;;
+    esac
+    ;;
+
+  *)
+    echo "usage: bw-wez {status|list|get <id> --field <name>}" >&2
+    exit 64
+    ;;
+esac

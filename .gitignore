@@ -1,0 +1,13 @@
+# Rust
+/helper/target/
+**/*.rs.bk
+Cargo.lock
+
+# bw-wez runtime
+**/bw-wez/session
+
+# Lavish review artifacts
+/.lavish/
+
+# OS
+.DS_Store
