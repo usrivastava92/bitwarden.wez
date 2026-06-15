@@ -7,6 +7,10 @@
   Fuzzy-search your vault, unlock with Touch ID, and copy or type passwords, usernames, and TOTPs without the <code>bw</code> CLI.</p>
 
   <p>
+    <img src="assets/demo.gif" alt="bitwarden.wez demo — real Touch ID unlock and the vault picker in WezTerm (mock data)" width="820" />
+  </p>
+
+  <p>
     <img src="https://github.com/usrivastava92/bitwarden.wez/actions/workflows/release.yml/badge.svg" alt="Build status" />
     <img src="https://img.shields.io/badge/platform-macOS-111827" alt="Platform: macOS" />
     <img src="https://img.shields.io/badge/WezTerm-plugin-4f46e5" alt="WezTerm plugin" />
@@ -77,11 +81,21 @@ Then restart WezTerm or reload your config.
 
 ### Pinning a version
 
-```lua
-local bw = wezterm.plugin.require("https://github.com/usrivastava92/bitwarden.wez", {
-  tag = "v1.0.0",
-})
+WezTerm's plugin loader takes **only the repository URL** — there is no `tag`,
+`version`, or `branch` argument, and it always checks out the default branch
+(`main`). So the plugin already tracks the latest `main`, and there is nothing to
+set for "use latest".
+
+If you want to freeze a specific release, pin it manually after the first load:
+locate the clone with `wezterm.plugin.list()`, then in that directory check out
+the tag —
+
+```sh
+git -C "<plugin_dir>" checkout v0.1.0
 ```
+
+It stays on that tag until you switch back to `main` (note that
+`wezterm.plugin.update_all()` pulls `main`, which un-pins it).
 
 ---
 
