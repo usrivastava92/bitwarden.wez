@@ -1,5 +1,17 @@
 ## Bitwarden Biometric Unlock Status
 
+> **RESOLVED (2026-06-15).** Root cause found and fixed. The blocker was **not**
+> macOS biometrics — it was the encrypted-message wire format. Bitwarden Desktop
+> 2026.5.0 changed its IPC `decryptString` to read `message.encryptedString`;
+> neither the old object form (`{encryptionType,data,iv,mac}`) nor the bare
+> EncString string carried that field, so the desktop's decrypt threw and the
+> `unlockWithBiometricsForUser` command was silently dropped (no reply, no
+> prompt). The helper now sends a full EncString object that includes
+> `encryptedString` **and** the expanded `data`/`iv`/`mac` parts, which works on
+> current builds, older builds, and matches what the desktop itself emits.
+> Verified end-to-end on 2026.5.0: `locked → unlock → unlocked`, and `list`
+> returns decrypted vault items. See "Resolution" at the bottom.
+
 ### Problem summary
 
 `bitwarden.wez` should trigger Bitwarden Desktop biometric unlock from WezTerm and then open the picker. On this machine, the helper can reach Bitwarden Desktop, but the biometric unlock flow never completes.
@@ -145,3 +157,69 @@ This is followed by immediate `LAContext` teardown and no visible Touch ID promp
 ### Current conclusion
 
 The main helper-side transport and handshake bugs appear fixed. The unresolved issue is that Bitwarden Desktop receives the unlock request but does not complete biometric authentication successfully on this machine, so no unlock reply ever returns to `bw-wez`.
+
+---
+
+### Resolution (2026-06-15)
+
+The earlier conclusion above (blaming macOS/Secure Enclave) was **wrong**. The
+`IOSEPBiometricService::sksQueueDequeue -> err:0xe00002f0` line is benign noise
+present on healthy Apple Silicon machines and was a red herring. The unlock
+request never reached the biometric handler at all.
+
+**Root cause.** Reading the desktop's bundled handler
+(`/Applications/Bitwarden.app/Contents/Resources/app.asar`,
+`BiometricMessageHandlerService.handleMessage`) showed the post-handshake
+encrypted command is decrypted with:
+
+```js
+decryptString(e, t) {
+  if (e.encryptionType === AesCbc256_B64) throw ...;     // type 0 only
+  return symmetric_decrypt_string(e.encryptedString, t); // reads e.encryptedString
+}
+```
+
+The `message` we send is passed straight in as `e`. Current builds read
+`e.encryptedString`. Our payloads didn't provide it:
+
+- legacy object `{encryptionType, data, iv, mac}` → `e.encryptedString` is
+  `undefined` → WASM decrypt throws → message silently dropped.
+- bare string `"2.iv|data|mac"` → `"...".encryptedString` is also `undefined`
+  → same silent drop.
+
+Because the drop happens **before** the command dispatch switch, and only a
+*successful-but-null* decrypt emits `invalidateEncryption`, the helper saw no
+reply at all and timed out (or, on `main`, blocked forever). This is why it
+broke after a Bitwarden update and why both the `main` object form and the
+branch string form failed identically.
+
+**Fix.** `Session::send_encrypted` now emits a single EncString object carrying
+both representations (exactly what the desktop emits on its own replies):
+
+```json
+"message": {
+  "encryptionType": 2,
+  "encryptedString": "2.iv|data|mac",
+  "data": "...", "iv": "...", "mac": "..."
+}
+```
+
+This satisfies current builds (`encryptedString`), older builds
+(`data`/`iv`/`mac`), and the integration tests. The brittle string→object retry
+ladder and `is_encoding_retryable()` were removed — they were also buggy
+(`is_encoding_retryable` matched on `err.to_string()`, which returns only the
+top-level anyhow context, not the nested "timed out" cause, so the fallback
+never fired).
+
+**Verified on Bitwarden Desktop 2026.5.0 (arm64):**
+
+- direct socket at `~/Library/Caches/com.bitwarden.desktop/s.bw` (the Group
+  Containers path was absent on this machine — the existing candidate fallback
+  handled it).
+- `setupEncryption` handshake succeeds.
+- `unlockWithBiometricsForUser` now returns `response:true` + `userKeyB64`.
+- `bw-wez status` goes `locked → unlocked`; `bw-wez list` returns decrypted
+  vault items.
+
+Note: the desktop's own vault must be running; if it is locked the unlock still
+drives Touch ID. Lock state was *not* the gate — the wire format was.

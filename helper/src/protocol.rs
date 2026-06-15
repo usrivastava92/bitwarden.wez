@@ -41,21 +41,6 @@ pub struct Session {
     next_message_id: i64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum MessageEncoding {
-    String,
-    Object,
-}
-
-impl MessageEncoding {
-    fn label(self) -> &'static str {
-        match self {
-            MessageEncoding::String => "encrypted string",
-            MessageEncoding::Object => "encrypted object",
-        }
-    }
-}
-
 impl Session {
     pub fn establish(user_id: &str) -> Result<Self> {
         match transport::connect_socket() {
@@ -168,34 +153,29 @@ impl Session {
         })
     }
 
-    fn send_encrypted(&mut self, mut inner: serde_json::Value, encoding: MessageEncoding) -> Result<i64> {
+    fn send_encrypted(&mut self, mut inner: serde_json::Value) -> Result<i64> {
         let mid = self.next_message_id;
         self.next_message_id += 1;
         inner["messageId"] = json!(mid);
         inner["timestamp"] = json!(now_ms());
-        match encoding {
-            MessageEncoding::String => {
-                let enc = self.key.encrypt_to_string(inner.to_string().as_bytes());
-                self.transport.write_json(&json!({
-                    "appId": self.app_id,
-                    "messageId": mid,
-                    "message": enc,
-                }))?;
-            }
-            MessageEncoding::Object => {
-                let p = self.key.encrypt_parts(inner.to_string().as_bytes());
-                self.transport.write_json(&json!({
-                    "appId": self.app_id,
-                    "messageId": mid,
-                    "message": {
-                        "encryptionType": 2,
-                        "data": p.data,
-                        "iv": p.iv,
-                        "mac": p.mac,
-                    },
-                }))?;
-            }
-        }
+        // Send the encrypted command as a full EncString object carrying BOTH
+        // the canonical `encryptedString` ("2.iv|data|mac") and the expanded
+        // `data`/`iv`/`mac` parts. Current desktop builds decrypt
+        // `message.encryptedString` (older builds read the expanded parts), so
+        // including both keeps us compatible with every build — and mirrors
+        // exactly what the desktop itself emits on the wire.
+        let p = self.key.encrypt_parts(inner.to_string().as_bytes());
+        self.transport.write_json(&json!({
+            "appId": self.app_id,
+            "messageId": mid,
+            "message": {
+                "encryptionType": 2,
+                "encryptedString": format!("2.{}|{}|{}", p.iv, p.data, p.mac),
+                "data": p.data,
+                "iv": p.iv,
+                "mac": p.mac,
+            },
+        }))?;
         Ok(mid)
     }
 
@@ -220,11 +200,11 @@ impl Session {
         }
     }
 
-    fn biometric_unlock_with_encoding(&mut self, encoding: MessageEncoding) -> Result<String> {
+    pub fn biometric_unlock(&mut self) -> Result<String> {
         self.send_encrypted(json!({
             "command": "unlockWithBiometricsForUser",
             "userId": self.user_id,
-        }), encoding)?;
+        }))?;
 
         let reply = self.read_encrypted()?;
         let granted = reply.get("response").and_then(|r| r.as_bool()).unwrap_or(false);
@@ -240,38 +220,4 @@ impl Session {
             .ok_or_else(|| anyhow!("unlock reply missing userKeyB64"))?;
         Ok(key_b64.to_string())
     }
-
-    pub fn biometric_unlock(&mut self) -> Result<String> {
-        match self.biometric_unlock_with_encoding(MessageEncoding::String) {
-            Ok(key) => Ok(key),
-            Err(first_err) => {
-                let retryable = is_encoding_retryable(&first_err);
-                if !retryable {
-                    return Err(first_err).context("biometric unlock via encrypted string");
-                }
-
-                let user_id = self.user_id.clone();
-                let mut retry = Session::establish(&user_id)
-                    .context("re-establishing secure channel for legacy desktop compatibility")?;
-                retry
-                    .biometric_unlock_with_encoding(MessageEncoding::Object)
-                    .with_context(|| {
-                        format!(
-                            "biometric unlock failed with both {} and {} payloads",
-                            MessageEncoding::String.label(),
-                            MessageEncoding::Object.label()
-                        )
-                    })
-                    .map_err(|retry_err| retry_err.context(first_err.to_string()))
-            }
-        }
-    }
-}
-
-fn is_encoding_retryable(err: &anyhow::Error) -> bool {
-    let msg = err.to_string();
-    msg.contains("timed out waiting for a reply")
-        || msg.contains("invalidated the secure channel")
-        || msg.contains("desktop disconnected")
-        || msg.contains("connection closed")
 }
