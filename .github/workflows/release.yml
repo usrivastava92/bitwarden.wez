@@ -29,8 +29,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: macos-14, triple: aarch64-apple-darwin }  # Apple Silicon
-          - { runner: macos-13, triple: x86_64-apple-darwin }   # Intel
+          # Both Apple targets build on the arm64 runner: x86_64 cross-compiles
+          # (our deps are pure Rust, so it's clean). Intel macOS runners are
+          # scarce/deprecated, so we don't rent one.
+          - { runner: macos-14, triple: aarch64-apple-darwin }
+          - { runner: macos-14, triple: x86_64-apple-darwin }
           # Linux (polkit) and Windows (Hello) targets land with their cuts.
     runs-on: ${{ matrix.runner }}
     steps:
