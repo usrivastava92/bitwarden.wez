@@ -17,7 +17,7 @@ use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use hmac::{Hmac, Mac};
 use rand::RngCore;
-use rsa::pkcs8::EncodePublicKey;
+use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
 use rsa::{Oaep, RsaPrivateKey, RsaPublicKey};
 use sha1::Sha1;
 use sha2::Sha256;
@@ -143,5 +143,29 @@ impl SymmetricKey {
             .decrypt_padded_vec_mut::<Pkcs7>(&ct)
             .map_err(|e| anyhow!("AES-CBC decrypt failed: {e}"))?;
         Ok(pt)
+    }
+}
+
+/// The account's RSA private key (decrypted from `accountCryptographicState`),
+/// used to unwrap organization keys (type-4 EncStrings).
+pub struct PrivateKey(RsaPrivateKey);
+
+impl PrivateKey {
+    /// Parse from PKCS#8 DER (the plaintext of the account's private_key field).
+    pub fn from_pkcs8_der(der: &[u8]) -> Result<Self> {
+        RsaPrivateKey::from_pkcs8_der(der)
+            .map(PrivateKey)
+            .map_err(|e| anyhow!("parsing account RSA private key: {e}"))
+    }
+
+    /// Decrypt a type-4 EncString (`4.<base64>`, RSA-OAEP-SHA1).
+    pub fn decrypt_type4(&self, enc_string: &str) -> Result<Vec<u8>> {
+        let b64 = enc_string
+            .strip_prefix("4.")
+            .ok_or_else(|| anyhow!("expected a type-4 (RSA) EncString"))?;
+        let ct = B64.decode(b64)?;
+        self.0
+            .decrypt(Oaep::new::<Sha1>(), &ct)
+            .map_err(|e| anyhow!("RSA-OAEP decrypt failed: {e}"))
     }
 }

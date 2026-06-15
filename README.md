@@ -33,7 +33,7 @@ copy_to_clipboard / send_text  ◀──JSON── biometric unlock          (To
   biometric unlock over its native-messaging channel — the same channel the
   browser extension uses — and gets back the **user key**, which it uses to
   decrypt your already-synced vault (`bw`'s `data.json`) directly in-process.
-  Reads never spawn `bw`. (Org items need org keys — deferred; personal logins work.)
+  Reads never spawn `bw`. (Personal + organization login items both work.)
 - **Provider B (later):** a self-contained agent that provisions its own
   biometric-gated key (no desktop-app dependency). Deferred; see the plan.
 
@@ -162,7 +162,7 @@ Non-zero exit = failure; the human-readable reason goes to stderr.
 - [x] Mock backend (UX testable with zero setup)
 - [x] Rust helper: native-messaging transport + handshake (verified vs desktop 2026.5.0)
 - [x] **Biometric unlock + in-process vault decryption working on macOS** (personal logins)
-- [ ] Organization items (decrypt org keys)
+- [x] Organization items (decrypt org keys via the account RSA private key)
 - [ ] In-memory agent (drop the on-disk key cache)
 - [ ] `bw sync` freshness / auto-sync
 - [ ] Linux (polkit) and Windows (Hello) transports

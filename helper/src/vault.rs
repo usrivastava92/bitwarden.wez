@@ -15,7 +15,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::crypto::SymmetricKey;
+use crate::crypto::{PrivateKey, SymmetricKey};
 use crate::protocol::Session;
 use crate::totp;
 
@@ -35,24 +35,26 @@ pub fn status() -> Result<&'static str> {
     }
 }
 
-/// `bw-wez list` -> compact JSON array of personal login items.
+/// `bw-wez list` -> compact JSON array of login items (personal + organization).
 pub fn list() -> Result<String> {
     let uk = user_key()?;
     let data = read_bw_data()?;
     let ciphers = find_suffix(&data, "_ciphers_ciphers")
         .ok_or_else(|| anyhow!("no ciphers found in bw data — run `bw sync`"))?;
     let folders = folder_map(&data, &uk);
+    let orgs = org_keys(&data, &uk);
 
     let mut out = Vec::new();
     if let Some(obj) = ciphers.as_object() {
         for c in obj.values() {
-            if !is_personal_login(c) {
+            if !is_login(c) {
                 continue;
             }
             let Some(id) = c.get("id").and_then(|v| v.as_str()) else { continue };
-            let ik = match item_key(&uk, c) {
+            let Some(base) = base_key(c, &uk, &orgs) else { continue }; // org key missing
+            let ik = match item_key(base, c) {
                 Ok(k) => k,
-                Err(_) => continue, // skip items we can't key (e.g. unexpected org item)
+                Err(_) => continue,
             };
             let login = c.get("login");
             out.push(serde_json::json!({
@@ -79,7 +81,10 @@ pub fn get_field(id: &str, field: &str) -> Result<String> {
         .and_then(|o| o.values().find(|c| c.get("id").and_then(|v| v.as_str()) == Some(id)))
         .ok_or_else(|| anyhow!("item {id} not found"))?;
 
-    let ik = item_key(&uk, c)?;
+    let orgs = org_keys(&data, &uk);
+    let base = base_key(c, &uk, &orgs)
+        .ok_or_else(|| anyhow!("missing organization key for this item"))?;
+    let ik = item_key(base, c)?;
     let login = c.get("login");
     let enc = match field {
         "password" => login.and_then(|l| l.get("password")),
@@ -125,22 +130,63 @@ fn user_key() -> Result<SymmetricKey> {
 // cipher decryption helpers
 // ---------------------------------------------------------------------------
 
-fn is_personal_login(c: &Value) -> bool {
-    let personal = c.get("organizationId").map(|v| v.is_null()).unwrap_or(true);
-    let is_login = c.get("type").and_then(|t| t.as_i64()) == Some(1);
-    personal && is_login
+fn is_login(c: &Value) -> bool {
+    c.get("type").and_then(|t| t.as_i64()) == Some(1)
+}
+
+/// The base key for a cipher: the org key if it belongs to an organization
+/// (None if we couldn't unwrap that org's key), otherwise the user key.
+fn base_key<'a>(
+    c: &Value,
+    uk: &'a SymmetricKey,
+    orgs: &'a HashMap<String, SymmetricKey>,
+) -> Option<&'a SymmetricKey> {
+    match c.get("organizationId").and_then(|v| v.as_str()) {
+        Some(org_id) => orgs.get(org_id),
+        None => Some(uk),
+    }
 }
 
 /// The key to decrypt a cipher's fields: its own item key (decrypted with the
-/// user key) if present, else the user key itself.
-fn item_key(uk: &SymmetricKey, c: &Value) -> Result<SymmetricKey> {
+/// base key) if present, else the base key itself.
+fn item_key(base: &SymmetricKey, c: &Value) -> Result<SymmetricKey> {
     match c.get("key").and_then(|v| v.as_str()) {
         Some(k) => {
-            let raw = uk.decrypt(k).context("decrypting item key")?;
+            let raw = base.decrypt(k).context("decrypting item key")?;
             SymmetricKey::from_bytes(&raw)
         }
-        None => Ok(uk.clone()),
+        None => Ok(base.clone()),
     }
+}
+
+/// orgId -> organization symmetric key. Decrypts the account RSA private key
+/// (type-2, under the user key), then unwraps each type-4 org key with it.
+fn org_keys(data: &Value, uk: &SymmetricKey) -> HashMap<String, SymmetricKey> {
+    let mut map = HashMap::new();
+    let Some(pk) = account_private_key(data, uk) else {
+        return map;
+    };
+    if let Some(orgk) = find_suffix(data, "_crypto_organizationKeys").and_then(|v| v.as_object()) {
+        for (org_id, entry) in orgk {
+            if let Some(enc) = entry.get("key").and_then(|v| v.as_str()) {
+                if let Ok(raw) = pk.decrypt_type4(enc) {
+                    if let Ok(k) = SymmetricKey::from_bytes(&raw) {
+                        map.insert(org_id.clone(), k);
+                    }
+                }
+            }
+        }
+    }
+    map
+}
+
+fn account_private_key(data: &Value, uk: &SymmetricKey) -> Option<PrivateKey> {
+    let enc = find_suffix(data, "_crypto_accountCryptographicState")?
+        .get("V1")?
+        .get("private_key")?
+        .as_str()?;
+    let der = uk.decrypt(enc).ok()?;
+    PrivateKey::from_pkcs8_der(&der).ok()
 }
 
 fn dec_opt(key: &SymmetricKey, v: Option<&Value>) -> Option<String> {
