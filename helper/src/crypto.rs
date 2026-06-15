@@ -127,19 +127,11 @@ impl SymmetricKey {
         }
     }
 
-    /// Encrypt plaintext into the canonical `2.iv|data|mac` EncString form.
-    /// Newer desktop builds expect the encrypted `message` payload as this raw
-    /// string rather than the expanded object form.
-    pub fn encrypt_to_string(&self, plaintext: &[u8]) -> String {
-        let parts = self.encrypt_parts(plaintext);
-        format!("2.{}|{}|{}", parts.iv, parts.data, parts.mac)
-    }
-
     /// Decrypt a type-2 EncString into plaintext bytes (verifies the MAC).
     pub fn decrypt(&self, enc_string: &str) -> Result<Vec<u8>> {
-        let body = enc_string
-            .strip_prefix("2.")
-            .ok_or_else(|| anyhow!("unsupported EncString type (expected '2.'): {enc_string:.8}…"))?;
+        let body = enc_string.strip_prefix("2.").ok_or_else(|| {
+            anyhow!("unsupported EncString type (expected '2.'): {enc_string:.8}…")
+        })?;
         let mut parts = body.split('|');
         let iv = B64.decode(parts.next().ok_or_else(|| anyhow!("missing iv"))?)?;
         let ct = B64.decode(parts.next().ok_or_else(|| anyhow!("missing ciphertext"))?)?;

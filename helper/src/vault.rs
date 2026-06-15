@@ -29,8 +29,9 @@ pub fn obtain_user_key() -> Result<SymmetricKey> {
 /// Compact JSON array of login items (personal + organization), decrypted with `uk`.
 pub fn list_with_key(uk: &SymmetricKey) -> Result<String> {
     let data = read_vault_data()?;
-    let ciphers = find_suffix(&data, "_ciphers_ciphers")
-        .ok_or_else(|| anyhow!("no items found in the vault — open the Bitwarden desktop app and let it sync"))?;
+    let ciphers = find_suffix(&data, "_ciphers_ciphers").ok_or_else(|| {
+        anyhow!("no items found in the vault — open the Bitwarden desktop app and let it sync")
+    })?;
     let folders = folder_map(&data, uk);
     let orgs = org_keys(&data, uk);
 
@@ -40,8 +41,12 @@ pub fn list_with_key(uk: &SymmetricKey) -> Result<String> {
             if !is_login(c) {
                 continue;
             }
-            let Some(id) = c.get("id").and_then(|v| v.as_str()) else { continue };
-            let Some(base) = base_key(c, uk, &orgs) else { continue };
+            let Some(id) = c.get("id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let Some(base) = base_key(c, uk, &orgs) else {
+                continue;
+            };
             let ik = match item_key(base, c) {
                 Ok(k) => k,
                 Err(_) => continue,
@@ -63,16 +68,20 @@ pub fn list_with_key(uk: &SymmetricKey) -> Result<String> {
 /// Get one field of an item by id, decrypted with `uk`.
 pub fn get_field_with_key(uk: &SymmetricKey, id: &str, field: &str) -> Result<String> {
     let data = read_vault_data()?;
-    let ciphers = find_suffix(&data, "_ciphers_ciphers")
-        .ok_or_else(|| anyhow!("no items found in the vault — open the Bitwarden desktop app and let it sync"))?;
+    let ciphers = find_suffix(&data, "_ciphers_ciphers").ok_or_else(|| {
+        anyhow!("no items found in the vault — open the Bitwarden desktop app and let it sync")
+    })?;
     let c = ciphers
         .as_object()
-        .and_then(|o| o.values().find(|c| c.get("id").and_then(|v| v.as_str()) == Some(id)))
+        .and_then(|o| {
+            o.values()
+                .find(|c| c.get("id").and_then(|v| v.as_str()) == Some(id))
+        })
         .ok_or_else(|| anyhow!("item {id} not found"))?;
 
     let orgs = org_keys(&data, uk);
-    let base = base_key(c, uk, &orgs)
-        .ok_or_else(|| anyhow!("missing organization key for this item"))?;
+    let base =
+        base_key(c, uk, &orgs).ok_or_else(|| anyhow!("missing organization key for this item"))?;
     let ik = item_key(base, c)?;
     let login = c.get("login");
     let enc = match field {
@@ -128,7 +137,8 @@ fn item_key(base: &SymmetricKey, c: &Value) -> Result<SymmetricKey> {
 }
 
 fn dec_opt(key: &SymmetricKey, v: Option<&Value>) -> Option<String> {
-    v.and_then(|x| x.as_str()).and_then(|s| key.decrypt_str(s).ok())
+    v.and_then(|x| x.as_str())
+        .and_then(|s| key.decrypt_str(s).ok())
 }
 
 fn first_uri(login: Option<&Value>) -> Option<&Value> {
@@ -247,8 +257,12 @@ fn desktop_user_id() -> Result<String> {
         }
     }
     for path in desktop_data_candidates() {
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
         for key in ["global_account_activeAccountId", "activeUserId"] {
             if let Some(id) = v.get(key).and_then(|x| x.as_str()) {
                 if is_guid(id) {

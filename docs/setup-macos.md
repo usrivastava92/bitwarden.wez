@@ -85,7 +85,6 @@ handshake fails, these are the likely culprits (all marked in the source):
 | `unlock reply missing user key` | `protocol.rs` | Key field is `userKeyB64` (newer) or `keyB64` (older); log the reply. |
 
 Tip: build with `BW_WEZ_DEBUG=1` to see every frame read from the transport.
-what your desktop version sends, then align the structs.
 
 ## Useful env vars
 

@@ -47,12 +47,9 @@ pub fn socket_candidates() -> Vec<PathBuf> {
     }
     let mut candidates = Vec::new();
     if let Some(home) = dirs::home_dir() {
-        candidates.push(
-            home.join("Library/Group Containers/LTZ2PFU5D6.com.bitwarden.desktop/s.bw"),
-        );
-        candidates.push(
-            home.join("Library/Caches/com.bitwarden.desktop/s.bw"),
-        );
+        candidates
+            .push(home.join("Library/Group Containers/LTZ2PFU5D6.com.bitwarden.desktop/s.bw"));
+        candidates.push(home.join("Library/Caches/com.bitwarden.desktop/s.bw"));
     }
     candidates
 }

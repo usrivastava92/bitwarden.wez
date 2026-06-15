@@ -1,11 +1,11 @@
 use anyhow::{anyhow, Context, Result};
 use serde_json::json;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::crypto::{KeyPair, SymmetricKey};
-use crate::transport::{self, TransportIO};
 use crate::transport::TransportKind;
+use crate::transport::{self, TransportIO};
 
 const HANDSHAKE_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 const ENCRYPTED_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
@@ -52,8 +52,9 @@ impl Session {
                             "[bw-wez] direct IPC socket protocol failed ({socket_err:#}); fallback to desktop_proxy"
                         );
                     }
-                    let transport = transport::connect_native_messaging()
-                        .context("falling back to desktop_proxy after direct socket protocol failure")?;
+                    let transport = transport::connect_native_messaging().context(
+                        "falling back to desktop_proxy after direct socket protocol failure",
+                    )?;
                     Session::with_transport(transport, user_id).with_context(|| {
                         format!(
                             "failed over both direct IPC socket and desktop_proxy transports after socket protocol failure: {socket_err}"
@@ -76,10 +77,7 @@ impl Session {
         }
     }
 
-    pub fn with_transport(
-        transport: Box<dyn TransportIO>,
-        user_id: &str,
-    ) -> Result<Self> {
+    pub fn with_transport(transport: Box<dyn TransportIO>, user_id: &str) -> Result<Self> {
         let transport_kind = transport.kind();
         let app_id = uuid::Uuid::new_v4().to_string();
         let keypair = KeyPair::generate()?;
@@ -189,7 +187,9 @@ impl Session {
             match frame.get("command").and_then(|c| c.as_str()).unwrap_or("") {
                 "verifyDesktopIPCFingerprint" => {}
                 "rejectedDesktopIPCFingerprint" => {
-                    return Err(anyhow!("fingerprint approval was rejected in the desktop app"))
+                    return Err(anyhow!(
+                        "fingerprint approval was rejected in the desktop app"
+                    ))
                 }
                 "invalidateEncryption" => {
                     return Err(anyhow!("desktop invalidated the secure channel"))
@@ -207,7 +207,10 @@ impl Session {
         }))?;
 
         let reply = self.read_encrypted()?;
-        let granted = reply.get("response").and_then(|r| r.as_bool()).unwrap_or(false);
+        let granted = reply
+            .get("response")
+            .and_then(|r| r.as_bool())
+            .unwrap_or(false);
         if !granted {
             return Err(anyhow!(
                 "biometric unlock not granted — enable 'Unlock with Touch ID' in the desktop app and ensure its vault is unlocked"

@@ -16,8 +16,11 @@ pub struct NativeMessagingTransport {
 
 impl NativeMessagingTransport {
     pub fn connect() -> Result<Self> {
-        let proxy = locate_desktop_proxy()
-            .ok_or_else(|| anyhow!("could not find the Bitwarden desktop_proxy binary — is the desktop app installed?"))?;
+        let proxy = locate_desktop_proxy().ok_or_else(|| {
+            anyhow!(
+                "could not find the Bitwarden desktop_proxy binary — is the desktop app installed?"
+            )
+        })?;
 
         let mut child = Command::new(&proxy)
             .arg(EXTENSION_ORIGIN)
@@ -29,7 +32,11 @@ impl NativeMessagingTransport {
 
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
-        Ok(NativeMessagingTransport { child, stdin, stdout })
+        Ok(NativeMessagingTransport {
+            child,
+            stdin,
+            stdout,
+        })
     }
 }
 

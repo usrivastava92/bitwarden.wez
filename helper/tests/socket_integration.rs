@@ -52,7 +52,9 @@ fn handle_client(stream: &mut UnixStream) -> Result<(), Box<dyn std::error::Erro
 
     let mut buffer = VecDeque::new();
     let mut read_buf = [0u8; 4096];
-    let mut state = ConnState { shared_secret: None };
+    let mut state = ConnState {
+        shared_secret: None,
+    };
 
     loop {
         let n = stream.read(&mut read_buf)?;
@@ -76,10 +78,7 @@ fn handle_client(stream: &mut UnixStream) -> Result<(), Box<dyn std::error::Erro
                 break;
             }
             buffer.drain(..4);
-            let mut frame = vec![0u8; frame_len];
-            for i in 0..frame_len {
-                frame[i] = buffer.pop_front().unwrap();
-            }
+            let frame: Vec<u8> = buffer.drain(..frame_len).collect();
 
             let json: serde_json::Value = serde_json::from_slice(&frame)?;
             if let Some(resp) = handle_message(&json, &mut state) {
@@ -99,15 +98,14 @@ fn send_frame(stream: &mut UnixStream, value: &serde_json::Value) -> std::io::Re
     stream.flush()
 }
 
-fn handle_message(
-    msg: &serde_json::Value,
-    state: &mut ConnState,
-) -> Option<serde_json::Value> {
+fn handle_message(msg: &serde_json::Value, state: &mut ConnState) -> Option<serde_json::Value> {
     let msg_field = msg.get("message");
 
     // Detect encrypted messages: either a string (EncString) or an object
     // with encryptionType == 2.
-    let is_encrypted_string = msg_field.and_then(|m| m.as_str()).map_or(false, |s| s.starts_with("2."));
+    let is_encrypted_string = msg_field
+        .and_then(|m| m.as_str())
+        .is_some_and(|s| s.starts_with("2."));
     let is_encrypted_object = msg_field
         .and_then(|m| m.get("encryptionType"))
         .and_then(|v| v.as_i64())
@@ -152,10 +150,7 @@ fn handle_message(
     }
 }
 
-fn handle_encrypted(
-    msg: &serde_json::Value,
-    state: &ConnState,
-) -> Option<serde_json::Value> {
+fn handle_encrypted(msg: &serde_json::Value, state: &ConnState) -> Option<serde_json::Value> {
     let secret = state.shared_secret.as_ref()?;
     let (iv_b64, data_b64, mac_b64): (String, String, String);
     let msg_body = msg.get("message");
@@ -262,7 +257,10 @@ use bw_wez::transport::TransportIO;
 fn test_socket_transport_connect_refused() {
     let path = temp_socket_path();
     let result = SocketTransport::connect_with_path(&path);
-    assert!(result.is_err(), "connect to non-existent socket should fail");
+    assert!(
+        result.is_err(),
+        "connect to non-existent socket should fail"
+    );
 }
 
 #[test]
@@ -276,8 +274,8 @@ fn test_socket_transport_write_read_frame() {
 
     std::thread::sleep(Duration::from_millis(200));
 
-    let mut transport = SocketTransport::connect_with_path(&sock_path)
-        .expect("should connect to mock server");
+    let mut transport =
+        SocketTransport::connect_with_path(&sock_path).expect("should connect to mock server");
 
     // Read "connected" frame the server sends on connect
     let connected = transport
@@ -317,8 +315,8 @@ fn test_socket_transport_setup_encryption() {
 
     std::thread::sleep(Duration::from_millis(200));
 
-    let mut transport = SocketTransport::connect_with_path(&sock_path)
-        .expect("should connect to mock server");
+    let mut transport =
+        SocketTransport::connect_with_path(&sock_path).expect("should connect to mock server");
 
     let connected = transport
         .read_json_timeout(Duration::from_secs(2))
@@ -347,7 +345,10 @@ fn test_socket_transport_setup_encryption() {
         Some("setupEncryption")
     );
     assert!(
-        response.get("sharedSecret").and_then(|v| v.as_str()).is_some(),
+        response
+            .get("sharedSecret")
+            .and_then(|v| v.as_str())
+            .is_some(),
         "response should contain sharedSecret"
     );
 
@@ -367,8 +368,7 @@ fn test_session_full_handshake_over_socket() {
 
     std::thread::sleep(Duration::from_millis(200));
 
-    let transport = SocketTransport::connect_with_path(&sock_path)
-        .expect("connect to mock");
+    let transport = SocketTransport::connect_with_path(&sock_path).expect("connect to mock");
 
     let mut session = bw_wez::protocol::Session::with_transport(
         Box::new(transport),

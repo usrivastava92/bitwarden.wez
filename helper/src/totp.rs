@@ -14,7 +14,9 @@ type HmacSha1 = Hmac<Sha1>;
 pub fn generate(secret_or_uri: &str) -> Result<String> {
     let (secret, digits, period, algo) = parse(secret_or_uri)?;
     if !algo.eq_ignore_ascii_case("SHA1") {
-        return Err(anyhow!("unsupported TOTP algorithm: {algo} (v1 supports SHA1)"));
+        return Err(anyhow!(
+            "unsupported TOTP algorithm: {algo} (v1 supports SHA1)"
+        ));
     }
     let key = base32_decode(&secret).ok_or_else(|| anyhow!("invalid base32 TOTP secret"))?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();

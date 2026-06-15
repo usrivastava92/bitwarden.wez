@@ -5,7 +5,9 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::transport::{debug_enabled, poll_readable, socket_candidates, TransportIO, TransportKind};
+use crate::transport::{
+    debug_enabled, poll_readable, socket_candidates, TransportIO, TransportKind,
+};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -78,9 +80,8 @@ impl TransportIO for SocketTransport {
 }
 
 fn connect_with_timeout(path: &Path, timeout: Duration) -> Result<UnixStream> {
-    let stream = UnixStream::connect(path).with_context(|| {
-        format!("connecting to IPC socket {}", path.display())
-    })?;
+    let stream = UnixStream::connect(path)
+        .with_context(|| format!("connecting to IPC socket {}", path.display()))?;
     stream.set_nonblocking(true)?;
     let fd = stream.as_raw_fd();
     let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
@@ -95,14 +96,14 @@ fn connect_with_timeout(path: &Path, timeout: Duration) -> Result<UnixStream> {
             .context("poll during socket connect");
     }
     if rc == 0 {
-        return Err(anyhow!("connection to IPC socket timed out after {timeout:?}"));
+        return Err(anyhow!(
+            "connection to IPC socket timed out after {timeout:?}"
+        ));
     }
     if (pfd.revents & (libc::POLLERR | libc::POLLHUP)) != 0 {
-        let err = stream
-            .take_error()
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused"));
+        let err = stream.take_error().ok().flatten().unwrap_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused")
+        });
         return Err(err).context("IPC socket connect failed");
     }
     stream.set_nonblocking(false)?;
