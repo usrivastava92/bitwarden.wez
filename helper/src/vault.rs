@@ -1,5 +1,6 @@
-//! The data plane: decrypt the vault from `bw`'s synced `data.json` using a
-//! user key supplied by the agent (held in memory, never on disk).
+//! The data plane: decrypt the vault from the Bitwarden desktop app's own synced
+//! `data.json`, using a user key supplied by the agent (held in memory, never on
+//! disk). No `bw` CLI is involved.
 //!
 //! `obtain_user_key()` performs the biometric unlock (via the desktop bridge)
 //! and returns the key; the agent holds it. `list_with_key`/`get_field_with_key`
@@ -27,9 +28,9 @@ pub fn obtain_user_key() -> Result<SymmetricKey> {
 
 /// Compact JSON array of login items (personal + organization), decrypted with `uk`.
 pub fn list_with_key(uk: &SymmetricKey) -> Result<String> {
-    let data = read_bw_data()?;
+    let data = read_vault_data()?;
     let ciphers = find_suffix(&data, "_ciphers_ciphers")
-        .ok_or_else(|| anyhow!("no ciphers found in bw data — run `bw sync`"))?;
+        .ok_or_else(|| anyhow!("no items found in the vault — open the Bitwarden desktop app and let it sync"))?;
     let folders = folder_map(&data, uk);
     let orgs = org_keys(&data, uk);
 
@@ -61,9 +62,9 @@ pub fn list_with_key(uk: &SymmetricKey) -> Result<String> {
 
 /// Get one field of an item by id, decrypted with `uk`.
 pub fn get_field_with_key(uk: &SymmetricKey, id: &str, field: &str) -> Result<String> {
-    let data = read_bw_data()?;
+    let data = read_vault_data()?;
     let ciphers = find_suffix(&data, "_ciphers_ciphers")
-        .ok_or_else(|| anyhow!("no ciphers found in bw data — run `bw sync`"))?;
+        .ok_or_else(|| anyhow!("no items found in the vault — open the Bitwarden desktop app and let it sync"))?;
     let c = ciphers
         .as_object()
         .and_then(|o| o.values().find(|c| c.get("id").and_then(|v| v.as_str()) == Some(id)))
@@ -171,10 +172,15 @@ fn org_keys(data: &Value, uk: &SymmetricKey) -> HashMap<String, SymmetricKey> {
 }
 
 fn account_private_key(data: &Value, uk: &SymmetricKey) -> Option<PrivateKey> {
-    let enc = find_suffix(data, "_crypto_accountCryptographicState")?
-        .get("V1")?
-        .get("private_key")?
-        .as_str()?;
+    // The account's RSA private key (type-2 EncString under the user key). The
+    // `bw` CLI nests it under `_crypto_accountCryptographicState.V1.private_key`;
+    // the desktop app stores it flat as `_crypto_privateKey`. Try both so we can
+    // read either vault store.
+    let enc = find_suffix(data, "_crypto_accountCryptographicState")
+        .and_then(|v| v.get("V1"))
+        .and_then(|v| v.get("private_key"))
+        .and_then(|v| v.as_str())
+        .or_else(|| find_suffix(data, "_crypto_privateKey").and_then(|v| v.as_str()))?;
     let der = uk.decrypt(enc).ok()?;
     PrivateKey::from_pkcs8_der(&der).ok()
 }
@@ -183,22 +189,42 @@ fn account_private_key(data: &Value, uk: &SymmetricKey) -> Option<PrivateKey> {
 // bw data.json
 // ---------------------------------------------------------------------------
 
-fn bw_data_path() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("BW_WEZ_BW_DATA") {
-        return Some(PathBuf::from(p));
+/// Candidate locations for the desktop app's own vault store.
+fn desktop_data_candidates() -> Vec<PathBuf> {
+    match dirs::home_dir() {
+        Some(home) => vec![
+            // Mac App Store (sandboxed container) build.
+            home.join("Library/Containers/com.bitwarden.desktop/Data/Library/Application Support/Bitwarden/data.json"),
+            // Direct-download build.
+            home.join("Library/Application Support/Bitwarden/data.json"),
+        ],
+        None => Vec::new(),
     }
-    let dir = if let Ok(d) = std::env::var("BITWARDENCLI_APPDATA_DIR") {
-        PathBuf::from(d)
-    } else {
-        dirs::data_dir()?.join("Bitwarden CLI")
-    };
-    Some(dir.join("data.json"))
 }
 
-fn read_bw_data() -> Result<Value> {
-    let path = bw_data_path().ok_or_else(|| anyhow!("cannot resolve the bw data dir"))?;
+/// The Bitwarden desktop app's own synced vault, if present. The app keeps it
+/// fresh while running, and it must be running for biometric unlock anyway — so
+/// no `bw` CLI is required.
+fn desktop_data_path() -> Option<PathBuf> {
+    desktop_data_candidates().into_iter().find(|p| p.exists())
+}
+
+/// Resolve the vault data file: an explicit override, else the desktop app's store.
+fn vault_data_path() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("BW_WEZ_VAULT_DATA") {
+        if !p.is_empty() {
+            return Some(PathBuf::from(p));
+        }
+    }
+    desktop_data_path()
+}
+
+fn read_vault_data() -> Result<Value> {
+    let path = vault_data_path().ok_or_else(|| {
+        anyhow!("could not find the Bitwarden desktop app's vault on disk — is the desktop app installed and signed in? (or set BW_WEZ_VAULT_DATA)")
+    })?;
     let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {} — is the bw CLI logged in? (`bw login`)", path.display()))?;
+        .with_context(|| format!("reading vault store {}", path.display()))?;
     Ok(serde_json::from_str(&text)?)
 }
 
@@ -220,12 +246,7 @@ fn desktop_user_id() -> Result<String> {
             return Ok(u);
         }
     }
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve home dir"))?;
-    let candidates = [
-        home.join("Library/Containers/com.bitwarden.desktop/Data/Library/Application Support/Bitwarden/data.json"),
-        home.join("Library/Application Support/Bitwarden/data.json"),
-    ];
-    for path in candidates {
+    for path in desktop_data_candidates() {
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
         let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
         for key in ["global_account_activeAccountId", "activeUserId"] {

@@ -7,9 +7,9 @@ Windows Hello / polkit later) and your **master password is never stored** — i
 gates a *key*, exactly like the official Bitwarden clients.
 
 > **Status:** working end-to-end on **macOS** — biometric unlock via the
-> Bitwarden desktop app, plus personal *and* organization login items. Linux and
-> Windows are next. A bundled **mock backend** lets you try the whole UX with
-> zero setup (no Rust, no `bw`, no desktop app).
+> Bitwarden desktop app, plus personal *and* organization login items, with **no
+> `bw` CLI required**. Linux and Windows are next. A bundled **mock backend**
+> lets you try the whole UX with zero setup (no Rust, no desktop app).
 
 ---
 
@@ -20,7 +20,8 @@ gates a *key*, exactly like the official Bitwarden clients.
   type the username, copy a live **TOTP**, the URI, or notes.
 - **Biometric unlock** — one Touch ID per session, then instant for ~15 min.
 - **Clipboard auto-clears** after a configurable delay.
-- **Auto-sync** keeps your local vault fresh in the background.
+- **Always fresh** — reads the Bitwarden desktop app's own continuously-synced
+  vault, so items you add or change elsewhere just appear.
 
 ---
 
@@ -42,8 +43,9 @@ happens to every secret involved.
   the same channel its browser extension uses. We don't reimplement Bitwarden's
   login or crypto-of-record; we ask their app to unlock and decrypt the vault
   *they* already synced.
-- The helper makes **no network connections** and has **no telemetry**. The only
-  thing that talks to Bitwarden's servers is the official `bw sync`.
+- The helper makes **no network connections** and has **no telemetry**. Nothing
+  this tool runs touches the network — the Bitwarden desktop app (which you
+  already run) does all the syncing.
 
 ### Where every secret lives
 
@@ -54,19 +56,20 @@ happens to every secret involved.
 | **Session / transport key** (handshake) | Helper RAM, for **one connection** | **Never** | The helper, then discarded when the connection closes |
 | **Vault user key** (decrypts your items) | `bw-wez agent` RAM, **`mlock`'d** (can't swap to disk) | **Never** | The agent; zeroed on lock / idle / stop |
 | **A decrypted item** (the password you picked) | RAM transiently → your clipboard or typed into the pane | **Never by us** | You; clipboard auto-clears |
-| **Encrypted vault** (`data.json`) | Disk | Yes — but written **by Bitwarden's `bw` CLI**, already encrypted | The OS filesystem; we only *read* it, never write it, and it's useless without the user key |
+| **Encrypted vault** (`data.json`) | Disk | Yes — but written **by the Bitwarden desktop app**, already encrypted | The OS filesystem; we only *read* it, never write it, and it's useless without the user key |
 
 ### "But what about the session key?" (the usual worry)
 
 If you've used the `bw` CLI you've seen it print a `BW_SESSION` and tell you to
 **export it into your shell** — a long-lived secret sitting in your environment,
-your shell history, maybe a dotfile. **This tool never does that.**
+your shell history, maybe a dotfile. **This tool never does that** (in fact it
+doesn't use the `bw` CLI at all).
 
-- We never ask you to export or store `BW_SESSION`.
+- We never ask you to export or store any session token.
 - The transport key from the unlock handshake is **freshly generated every time**
   (a new ephemeral RSA keypair per unlock) and exists **only in memory for the
   duration of that one connection**. It is never written down, never reused.
-- The vault user key the desktop app returns is **never passed to `bw`**, never
+- The vault user key the desktop app returns is **never written to disk**, never
   placed in an environment variable, never put on a command line (so it can't
   show up in `ps`), and never logged. It is held as raw bytes in the agent's
   `mlock`'d buffer and used for in-process decryption only.
@@ -84,19 +87,20 @@ session file; that was removed — see the git history.)
 
 The **helper binary opens no network sockets at all.** To reach the desktop app
 it launches Bitwarden's own `desktop_proxy` and speaks to it over stdio pipes;
-the proxy relays to the desktop app's *local* socket. The only process that ever
-contacts Bitwarden's servers is the official **`bw sync`**, doing exactly what it
-does when you run it yourself. No analytics, no crash reporting, no "phone home."
+the proxy relays to the desktop app's *local* socket. **Nothing this tool runs
+ever contacts the network** — all server communication is done by the Bitwarden
+desktop app itself, exactly as it already does. No analytics, no crash
+reporting, no "phone home."
 
 ### What you are trusting (and what we can't protect against)
 
 Being precise about the trust boundary is itself part of earning trust. When you
 use this, you are trusting:
 
-1. **Bitwarden's official desktop app + `bw` CLI** — they own your master
-   password, the biometric secret, and the encrypted vault. (You already trust
-   these by using Bitwarden.)
-2. **This helper** — ~1,400 lines of Rust (much of it comments documenting the
+1. **Bitwarden's official desktop app** — it owns your master password, the
+   biometric secret, the encrypted vault, and all syncing. (You already trust it
+   by using Bitwarden.)
+2. **This helper** — ~1,300 lines of Rust (much of it comments documenting the
    protocol), dependency-light, open and auditable.
 3. **WezTerm** and the OS.
 
@@ -122,7 +126,7 @@ ls -la ~/Library/Caches/bw-wez/
 
 # 2. No secret in the agent's args or environment:
 pgrep -fl 'bw-wez agent'                      # just "bw-wez agent" — no key in argv
-ps eww -p "$(pgrep -f 'bw-wez agent')"        # scan the env: no key, no BW_SESSION
+ps eww -p "$(pgrep -f 'bw-wez agent')"        # scan the env: no key, no session token
 
 # 3. The agent opens NO network sockets (note the -a: it ANDs the filters;
 #    without -a, lsof ORs them and dumps every process's sockets):
@@ -134,8 +138,8 @@ lsof -a -p "$(pgrep -f 'bw-wez agent')" -nP      # only /dev/null ×3 + agent.so
 # 4. See EXACTLY what is exchanged with the desktop app, frame by frame:
 BW_WEZ_DEBUG=1 bw-wez unlock
 
-# 5. Reads decrypt in-process — `list`/`get` never spawn `bw`:
-#    (watch your process list while picking; no `bw` child appears)
+# 5. Reads decrypt in-process and touch no network:
+#    (watch your process list / a network monitor while picking — nothing dials out)
 ```
 
 ### Read the code
@@ -147,7 +151,7 @@ It's small and laid out so you can find the sensitive parts fast:
 | `helper/src/transport.rs` | Launches `desktop_proxy`, native-messaging framing (stdio only — no network) |
 | `helper/src/protocol.rs` | The handshake + biometric-unlock request to the desktop app |
 | `helper/src/crypto.rs` | EncString (AES-256-CBC + HMAC) decryption; key types; ephemeral RSA |
-| `helper/src/vault.rs` | Reads Bitwarden's encrypted `data.json` and decrypts it **in-process** |
+| `helper/src/vault.rs` | Reads the desktop app's encrypted `data.json` and decrypts it **in-process** |
 | `helper/src/agent.rs` | Holds the key in RAM (`mlock`, zero-on-drop, idle-lock, `0600` socket) |
 | `plugin/init.lua` | The WezTerm UI — picker, copy/type, clipboard clear (no crypto) |
 
@@ -174,8 +178,8 @@ copy_to_clipboard / send_text  ◀──JSON── biometric unlock          (To
 - **Provider A (today):** the helper asks the *running desktop app* to do the
   biometric unlock over its native-messaging channel — the same channel the
   browser extension uses — and gets back the **user key**, which it uses to
-  decrypt your already-synced vault (`bw`'s `data.json`) directly in-process.
-  Reads never spawn `bw`. Personal + organization login items both work.
+  decrypt the desktop app's own synced vault (`data.json`) directly in-process.
+  No `bw` CLI, no network. Personal + organization login items both work.
 - **Provider B (later):** a self-contained agent that provisions its own
   biometric-gated key (no desktop-app dependency). Deferred; see the plan.
 
@@ -185,8 +189,8 @@ Full design + rationale: `.lavish/plan.html` (open in a browser).
 
 ## Quick start — try the picker now (mock backend, no setup)
 
-The mock backend returns fake vault data so you can feel the UX without Rust,
-`bw`, or the desktop app.
+The mock backend returns fake vault data so you can feel the UX without Rust or
+the desktop app.
 
 In your `wezterm.lua`:
 
@@ -216,28 +220,24 @@ copies the (fake) password.
 
 ## Real setup (macOS)
 
-You need three things; all are quick:
+Just two things — no `bw` CLI, no accounts to wire up:
 
 1. **Bitwarden desktop app** — install it (the **Mac App Store** build exposes
    Touch ID), sign in, and in *Settings* enable:
    - ✅ **Allow browser integration**
    - ✅ **Unlock with Touch ID**
 
-   Keep the app running and unlocked at least once per login session.
+   Keep the app running (it must be running for biometric unlock anyway). It
+   keeps its own vault synced, so the picker is always current — there's nothing
+   else to sync.
 
-2. **The `bw` CLI** — `brew install bitwarden-cli`, then `bw login` **once**.
-   This is only used to sync your *encrypted* vault to disk; it is **never**
-   invoked on reads, and you do **not** need to export the `BW_SESSION` it
-   prints. After login the agent keeps the vault fresh on its own (`bw sync`
-   every 30 min, and on demand via `bw-wez sync`) — syncing needs no unlock, so
-   it never prompts for Touch ID.
-
-3. **The helper** — build it once:
+2. **The helper** — build it once:
    ```sh
    cd helper
    cargo build --release
    # → helper/target/release/bw-wez   (put it on PATH, or point `helper` at it)
    ```
+   (Prebuilt binaries, so you can skip this step too, are on the roadmap.)
 
 Then point the plugin at the real helper (drop the `mock/` path):
 
@@ -250,8 +250,9 @@ bw.apply_to_config(config, {
 
 Press your keybind → Touch ID → pick an item → password on your clipboard.
 
-See `docs/setup-macos.md` for troubleshooting the native-messaging handshake and
-the full list of `BW_WEZ_*` environment variables.
+The helper finds the desktop app's vault automatically; set `BW_WEZ_VAULT_DATA`
+only if yours lives in a non-standard place. See `docs/setup-macos.md` for
+handshake troubleshooting and the full list of `BW_WEZ_*` environment variables.
 
 ---
 
@@ -300,7 +301,6 @@ interchangeable (and you can write your own backend):
 | `bw-wez status` | `{"status":"unlocked"\|"locked"\|"no-desktop"\|"error","message"?}` |
 | `bw-wez list` | JSON array of `{id,name,username,folder,uri}` |
 | `bw-wez get <id> --field <password\|username\|totp\|uri\|notes>` | raw value on stdout |
-| `bw-wez sync` | `{"status":"synced"}` — refresh the local vault (`bw sync`); no unlock |
 
 Other agent commands: `bw-wez unlock` (force a Touch ID unlock now),
 `bw-wez lock` (drop the in-memory key immediately), `bw-wez stop` (kill the
@@ -316,7 +316,8 @@ agent). Non-zero exit = failure; the human-readable reason goes to stderr.
 - [x] **Biometric unlock + in-process vault decryption working on macOS** (personal logins)
 - [x] Organization items (decrypt org keys via the account RSA private key)
 - [x] In-memory agent (mlock'd key, idle-lock, 0600 socket — no on-disk key)
-- [x] `bw sync` freshness / auto-sync (background interval + manual `bw-wez sync`)
+- [x] Read the desktop app's own synced vault directly — **no `bw` CLI dependency** (freshness handled by the app)
+- [ ] Prebuilt helper binaries (skip the Rust build) via GitHub Releases
 - [ ] Linux (polkit) and Windows (Hello) transports
 - [ ] Provider B: self-contained biometric-gated key + official SDK (deferred)
 
