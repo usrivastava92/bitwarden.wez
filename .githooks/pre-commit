@@ -1,0 +1,26 @@
+#!/bin/sh
+# Pre-commit hook: reject if Rust code isn't formatted.
+# Enable with: git config core.hooksPath .githooks
+
+set -e
+
+STAGED_RS=$(git diff --cached --name-only --diff-filter=ACMR | grep -c '\.rs$' || true)
+
+if [ "$STAGED_RS" -eq 0 ]; then
+    exit 0
+fi
+
+cd helper
+
+if ! cargo fmt --check 2>/dev/null; then
+    echo ""
+    echo "❌ Rust formatting check failed. Run 'cargo fmt' in helper/ and re-stage:"
+    cargo fmt --check 2>&1 | grep 'Diff in' | sed 's/Diff in //' | sed 's/://'
+    exit 1
+fi
+
+if ! cargo clippy --all-targets -- -D warnings 2>/dev/null; then
+    echo ""
+    echo "❌ Clippy check failed. Fix warnings above and re-stage."
+    exit 1
+fi
