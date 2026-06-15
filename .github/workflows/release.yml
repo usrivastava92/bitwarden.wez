@@ -4,8 +4,9 @@
 # clone (no download needed by users).
 #
 # This runs once the repo is on GitHub. Notes to validate on first run:
-#   - The `bundle` job pushes to the default branch; the repo's branch
-#     protection must allow the GITHUB_TOKEN (or swap in a PAT/deploy key).
+#   - The `bundle` job uses the `production` environment and pushes to the
+#     default branch with `RELEASE_TOKEN`, which should be a fine-grained PAT
+#     owned by an admin-capable account for this repo.
 #   - Provenance attestation needs the id-token + attestations permissions below.
 #   - Reproducibility goal: `cargo build --release --locked` here should match a
 #     user's local build of the same tag.
@@ -85,10 +86,12 @@ jobs:
     name: commit bundled binaries
     needs: build
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -100,8 +103,7 @@ jobs:
           for d in artifacts/bw-wez-*; do
             triple="$(basename "$d" | sed 's/^bw-wez-//')"
             mkdir -p "bin/${triple}"
-            src="$(find "$d" -type f | head -1)"   # artifact holds exactly one file (the binary)
-            cp "$src" "bin/${triple}/bw-wez"
+            cp "$d"/* "bin/${triple}/bw-wez"
             chmod +x "bin/${triple}/bw-wez"
           done
 
