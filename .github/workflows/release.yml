@@ -55,29 +55,31 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.triple }}
 
       - name: Stage binary + checksum
+        # Release assets need per-platform names — both matrix jobs would
+        # otherwise upload a file called `bw-wez` and collide on the Release.
         run: |
-          mkdir -p "dist/${{ matrix.triple }}"
-          cp "helper/target/${{ matrix.triple }}/release/bw-wez" "dist/${{ matrix.triple }}/bw-wez"
-          ( cd "dist/${{ matrix.triple }}" && shasum -a 256 bw-wez > bw-wez.sha256 )
+          mkdir -p dist
+          cp "helper/target/${{ matrix.triple }}/release/bw-wez" "dist/bw-wez-${{ matrix.triple }}"
+          ( cd dist && shasum -a 256 "bw-wez-${{ matrix.triple }}" > "bw-wez-${{ matrix.triple }}.sha256" )
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: "dist/${{ matrix.triple }}/bw-wez"
+          subject-path: "dist/bw-wez-${{ matrix.triple }}"
 
       - name: Publish to the GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/${{ matrix.triple }}/bw-wez
-            dist/${{ matrix.triple }}/bw-wez.sha256
+            dist/bw-wez-${{ matrix.triple }}
+            dist/bw-wez-${{ matrix.triple }}.sha256
 
       - name: Upload artifact for the bundle job
         uses: actions/upload-artifact@v4
         with:
           name: bw-wez-${{ matrix.triple }}
-          path: "dist/${{ matrix.triple }}/bw-wez"
+          path: "dist/bw-wez-${{ matrix.triple }}"
 
   bundle:
     name: commit bundled binaries
@@ -98,7 +100,8 @@ jobs:
           for d in artifacts/bw-wez-*; do
             triple="$(basename "$d" | sed 's/^bw-wez-//')"
             mkdir -p "bin/${triple}"
-            cp "${d}/bw-wez" "bin/${triple}/bw-wez"
+            src="$(find "$d" -type f | head -1)"   # artifact holds exactly one file (the binary)
+            cp "$src" "bin/${triple}/bw-wez"
             chmod +x "bin/${triple}/bw-wez"
           done
 
