@@ -147,10 +147,10 @@ Non-zero exit = failure; the human-readable reason goes to stderr.
 
 - The master password is never entered in the terminal (WezTerm's prompt can't
   mask input) nor stored by this tool. Unlock is biometric, via the desktop app.
-- v1 caches the biometric user key in a `0600` file with a TTL (default 300s) so
-  one Touch ID covers a picker interaction. It's used in-process to decrypt the
-  vault and is never written to your shell env or passed to another process. The
-  planned in-memory agent removes the on-disk key entirely.
+- The biometric user key is held **only in memory** by a background agent
+  (`bw-wez agent`), `mlock`'d so it can't swap to disk, and dropped after 15 min
+  idle (`BW_WEZ_IDLE_SECS`; `bw-wez lock` drops it now). It's never written to
+  disk, your shell env, or passed to another process. The agent's socket is `0600`.
 - Copied passwords auto-clear from the clipboard after `clear_clipboard_seconds`.
 - Prefer `type_password` near a trusted prompt to avoid the clipboard entirely.
 
@@ -163,7 +163,7 @@ Non-zero exit = failure; the human-readable reason goes to stderr.
 - [x] Rust helper: native-messaging transport + handshake (verified vs desktop 2026.5.0)
 - [x] **Biometric unlock + in-process vault decryption working on macOS** (personal logins)
 - [x] Organization items (decrypt org keys via the account RSA private key)
-- [ ] In-memory agent (drop the on-disk key cache)
+- [x] In-memory agent (mlock'd key, idle-lock, 0600 socket — no on-disk key)
 - [ ] `bw sync` freshness / auto-sync
 - [ ] Linux (polkit) and Windows (Hello) transports
 - [ ] Provider B: self-contained biometric-gated key + official SDK (deferred)

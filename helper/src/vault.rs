@@ -1,14 +1,10 @@
-//! The data plane: decrypt the vault directly with the biometric user key.
+//! The data plane: decrypt the vault from `bw`'s synced `data.json` using a
+//! user key supplied by the agent (held in memory, never on disk).
 //!
-//! Why not shell out to `bw`? The `bw` CLI's `BW_SESSION` is a *session key*
-//! that encrypts bw's at-rest copy of the user key — not the user key itself —
-//! so the biometric user key can't be injected as a session (bw 2026.5's key
-//! model). Instead we read bw's already-synced, encrypted `data.json` and
-//! decrypt the items ourselves with the user key. `bw` is only a setup/sync
-//! dependency (`bw login` / `bw sync` populate `data.json`); reads never spawn it.
-//!
-//! Scope (v1): personal login items (type 1). Organization items need org keys
-//! (decrypt the user's org key from `accountKeys`/`organizationKeys`) — deferred.
+//! `obtain_user_key()` performs the biometric unlock (via the desktop bridge)
+//! and returns the key; the agent holds it. `list_with_key`/`get_field_with_key`
+//! take that key and decrypt — reads never spawn `bw`. Personal + organization
+//! login items are supported.
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
@@ -19,30 +15,23 @@ use crate::crypto::{PrivateKey, SymmetricKey};
 use crate::protocol::Session;
 use crate::totp;
 
-const DEFAULT_TTL_SECS: u64 = 300;
-
-/// Public status string for `bw-wez status`.
-pub fn status() -> Result<&'static str> {
-    if !desktop_proxy_present() {
-        return Ok("no-desktop");
-    }
-    if read_bw_data().is_err() {
-        return Ok("no-vault"); // bw not logged in / no data.json yet
-    }
-    match cached_session() {
-        Some(_) => Ok("unlocked"),
-        None => Ok("locked"),
-    }
+/// Perform a biometric unlock via the desktop bridge and return the user key.
+/// No caching — the agent holds the key in memory.
+pub fn obtain_user_key() -> Result<SymmetricKey> {
+    let user_id = desktop_user_id()?;
+    let mut session =
+        Session::establish(&user_id).context("connecting to the Bitwarden desktop app")?;
+    let token = session.biometric_unlock().context("biometric unlock")?;
+    SymmetricKey::from_b64(&token).context("decoding the unlocked user key")
 }
 
-/// `bw-wez list` -> compact JSON array of login items (personal + organization).
-pub fn list() -> Result<String> {
-    let uk = user_key()?;
+/// Compact JSON array of login items (personal + organization), decrypted with `uk`.
+pub fn list_with_key(uk: &SymmetricKey) -> Result<String> {
     let data = read_bw_data()?;
     let ciphers = find_suffix(&data, "_ciphers_ciphers")
         .ok_or_else(|| anyhow!("no ciphers found in bw data — run `bw sync`"))?;
-    let folders = folder_map(&data, &uk);
-    let orgs = org_keys(&data, &uk);
+    let folders = folder_map(&data, uk);
+    let orgs = org_keys(&data, uk);
 
     let mut out = Vec::new();
     if let Some(obj) = ciphers.as_object() {
@@ -51,7 +40,7 @@ pub fn list() -> Result<String> {
                 continue;
             }
             let Some(id) = c.get("id").and_then(|v| v.as_str()) else { continue };
-            let Some(base) = base_key(c, &uk, &orgs) else { continue }; // org key missing
+            let Some(base) = base_key(c, uk, &orgs) else { continue };
             let ik = match item_key(base, c) {
                 Ok(k) => k,
                 Err(_) => continue,
@@ -70,9 +59,8 @@ pub fn list() -> Result<String> {
     Ok(serde_json::to_string(&out)?)
 }
 
-/// `bw-wez get <id> --field <name>` -> the raw value.
-pub fn get_field(id: &str, field: &str) -> Result<String> {
-    let uk = user_key()?;
+/// Get one field of an item by id, decrypted with `uk`.
+pub fn get_field_with_key(uk: &SymmetricKey, id: &str, field: &str) -> Result<String> {
     let data = read_bw_data()?;
     let ciphers = find_suffix(&data, "_ciphers_ciphers")
         .ok_or_else(|| anyhow!("no ciphers found in bw data — run `bw sync`"))?;
@@ -81,8 +69,8 @@ pub fn get_field(id: &str, field: &str) -> Result<String> {
         .and_then(|o| o.values().find(|c| c.get("id").and_then(|v| v.as_str()) == Some(id)))
         .ok_or_else(|| anyhow!("item {id} not found"))?;
 
-    let orgs = org_keys(&data, &uk);
-    let base = base_key(c, &uk, &orgs)
+    let orgs = org_keys(&data, uk);
+    let base = base_key(c, uk, &orgs)
         .ok_or_else(|| anyhow!("missing organization key for this item"))?;
     let ik = item_key(base, c)?;
     let login = c.get("login");
@@ -106,27 +94,6 @@ pub fn get_field(id: &str, field: &str) -> Result<String> {
 }
 
 // ---------------------------------------------------------------------------
-// unlock (biometric, via the desktop bridge)
-// ---------------------------------------------------------------------------
-
-/// Force a biometric unlock now and cache the session.
-pub fn ensure_unlocked() -> Result<String> {
-    if let Some(s) = cached_session() {
-        return Ok(s);
-    }
-    let user_id = desktop_user_id()?;
-    let mut session =
-        Session::establish(&user_id).context("connecting to the Bitwarden desktop app")?;
-    let token = session.biometric_unlock().context("biometric unlock")?;
-    store_session(&token)?;
-    Ok(token)
-}
-
-fn user_key() -> Result<SymmetricKey> {
-    SymmetricKey::from_b64(&ensure_unlocked()?).context("decoding the unlocked user key")
-}
-
-// ---------------------------------------------------------------------------
 // cipher decryption helpers
 // ---------------------------------------------------------------------------
 
@@ -147,8 +114,8 @@ fn base_key<'a>(
     }
 }
 
-/// The key to decrypt a cipher's fields: its own item key (decrypted with the
-/// base key) if present, else the base key itself.
+/// Item key: the cipher's own key (decrypted with the base key) if present,
+/// else the base key itself.
 fn item_key(base: &SymmetricKey, c: &Value) -> Result<SymmetricKey> {
     match c.get("key").and_then(|v| v.as_str()) {
         Some(k) => {
@@ -159,8 +126,31 @@ fn item_key(base: &SymmetricKey, c: &Value) -> Result<SymmetricKey> {
     }
 }
 
-/// orgId -> organization symmetric key. Decrypts the account RSA private key
-/// (type-2, under the user key), then unwraps each type-4 org key with it.
+fn dec_opt(key: &SymmetricKey, v: Option<&Value>) -> Option<String> {
+    v.and_then(|x| x.as_str()).and_then(|s| key.decrypt_str(s).ok())
+}
+
+fn first_uri(login: Option<&Value>) -> Option<&Value> {
+    login
+        .and_then(|l| l.get("uris"))
+        .and_then(|u| u.as_array())
+        .and_then(|a| a.first())
+        .and_then(|f| f.get("uri"))
+}
+
+fn folder_map(data: &Value, uk: &SymmetricKey) -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    if let Some(folders) = find_suffix(data, "_folder_folders").and_then(|f| f.as_object()) {
+        for (id, f) in folders {
+            if let Some(name) = dec_opt(uk, f.get("name")) {
+                m.insert(id.clone(), name);
+            }
+        }
+    }
+    m
+}
+
+/// orgId -> organization symmetric key (account RSA private key unwraps each type-4 org key).
 fn org_keys(data: &Value, uk: &SymmetricKey) -> HashMap<String, SymmetricKey> {
     let mut map = HashMap::new();
     let Some(pk) = account_private_key(data, uk) else {
@@ -187,30 +177,6 @@ fn account_private_key(data: &Value, uk: &SymmetricKey) -> Option<PrivateKey> {
         .as_str()?;
     let der = uk.decrypt(enc).ok()?;
     PrivateKey::from_pkcs8_der(&der).ok()
-}
-
-fn dec_opt(key: &SymmetricKey, v: Option<&Value>) -> Option<String> {
-    v.and_then(|x| x.as_str()).and_then(|s| key.decrypt_str(s).ok())
-}
-
-fn first_uri(login: Option<&Value>) -> Option<&Value> {
-    login
-        .and_then(|l| l.get("uris"))
-        .and_then(|u| u.as_array())
-        .and_then(|a| a.first())
-        .and_then(|f| f.get("uri"))
-}
-
-fn folder_map(data: &Value, uk: &SymmetricKey) -> HashMap<String, String> {
-    let mut m = HashMap::new();
-    if let Some(folders) = find_suffix(data, "_folder_folders").and_then(|f| f.as_object()) {
-        for (id, f) in folders {
-            if let Some(name) = dec_opt(uk, f.get("name")) {
-                m.insert(id.clone(), name);
-            }
-        }
-    }
-    m
 }
 
 // ---------------------------------------------------------------------------
@@ -242,11 +208,6 @@ fn find_suffix<'a>(data: &'a Value, suffix: &str) -> Option<&'a Value> {
         .iter()
         .find(|(k, _)| k.ends_with(suffix))
         .map(|(_, v)| v)
-}
-
-fn desktop_proxy_present() -> bool {
-    std::path::Path::new("/Applications/Bitwarden.app/Contents/MacOS/desktop_proxy").exists()
-        || std::env::var("BW_WEZ_DESKTOP_PROXY").is_ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -293,65 +254,4 @@ fn is_guid(s: &str) -> bool {
         && b[18] == b'-'
         && b[23] == b'-'
         && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
-}
-
-// ---------------------------------------------------------------------------
-// session cache (v1: 0600 file with TTL; swap for an agent socket later)
-// ---------------------------------------------------------------------------
-
-fn ttl_secs() -> u64 {
-    std::env::var("BW_WEZ_SESSION_TTL")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_TTL_SECS)
-}
-
-fn session_path() -> Option<PathBuf> {
-    let mut dir = dirs::cache_dir()?;
-    dir.push("bw-wez");
-    Some(dir.join("session"))
-}
-
-fn cached_session() -> Option<String> {
-    let path = session_path()?;
-    let meta = std::fs::metadata(&path).ok()?;
-    let age = meta.modified().ok()?.elapsed().ok()?;
-    if age.as_secs() > ttl_secs() {
-        let _ = std::fs::remove_file(&path);
-        return None;
-    }
-    let token = std::fs::read_to_string(&path).ok()?.trim().to_string();
-    if token.is_empty() {
-        None
-    } else {
-        Some(token)
-    }
-}
-
-fn store_session(token: &str) -> Result<()> {
-    let path = session_path().ok_or_else(|| anyhow!("could not resolve cache dir"))?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    write_private(&path, token)
-}
-
-#[cfg(unix)]
-fn write_private(path: &std::path::Path, contents: &str) -> Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?;
-    f.write_all(contents.as_bytes())?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn write_private(path: &std::path::Path, contents: &str) -> Result<()> {
-    std::fs::write(path, contents)?;
-    Ok(())
 }

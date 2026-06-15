@@ -61,5 +61,10 @@ what your desktop version sends, then align the structs.
 ## Useful env vars
 
 - `BW_WEZ_DESKTOP_PROXY` — override the proxy binary path.
-- `BW_WEZ_BW` — override the `bw` binary path.
-- `BW_WEZ_SESSION_TTL` — seconds to trust the cached session (default 300).
+- `BW_WEZ_BW_DATA` / `BITWARDENCLI_APPDATA_DIR` — override where bw's `data.json` lives.
+- `BW_WEZ_IDLE_SECS` — agent idle-lock timeout in seconds (default 900).
+- `BW_WEZ_AGENT_SOCK` — override the agent's unix socket path.
+- `BW_WEZ_USER_ID` — override the desktop account GUID used in the handshake.
+
+Agent commands: `bw-wez status` (unlocked/locked), `bw-wez lock` (drop the key
+now), `bw-wez stop` (kill the agent). The agent auto-spawns on first use.

@@ -91,6 +91,14 @@ impl SymmetricKey {
         Self::from_bytes(&raw)
     }
 
+    /// The raw 64-byte key (enc || mac). Used by the agent to hold/mlock it.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut v = Vec::with_capacity(64);
+        v.extend_from_slice(&self.enc);
+        v.extend_from_slice(&self.mac);
+        v
+    }
+
     /// Decrypt a type-2 EncString and interpret the plaintext as UTF-8.
     pub fn decrypt_str(&self, enc_string: &str) -> Result<String> {
         let pt = self.decrypt(enc_string)?;
