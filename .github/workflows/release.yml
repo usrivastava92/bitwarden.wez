@@ -64,7 +64,7 @@ jobs:
           ( cd dist && shasum -a 256 "bw-wez-${{ matrix.triple }}" > "bw-wez-${{ matrix.triple }}.sha256" )
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@92c65d2898f1f53cfdc910b962cecff86e7f8fcc # v1
+        uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1
         with:
           subject-path: "dist/bw-wez-${{ matrix.triple }}"
 
