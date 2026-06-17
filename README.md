@@ -16,6 +16,8 @@
     <img src="https://img.shields.io/badge/WezTerm-plugin-4f46e5" alt="WezTerm plugin" />
     <img src="https://img.shields.io/badge/unlock-Touch%20ID-0f766e" alt="Touch ID unlock" />
     <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
+    <img src="https://img.shields.io/github/last-commit/usrivastava92/bitwarden.wez" alt="Last Commit" />
+    <a href="https://scorecard.dev/status/github.com/usrivastava92/bitwarden.wez"><img src="https://api.scorecard.dev/projects/github.com/usrivastava92/bitwarden.wez/badge" alt="OpenSSF Scorecard" /></a>
   </p>
 </div>
 
@@ -131,8 +133,6 @@ local bw = wezterm.plugin.require 'file:///path/to/bitwarden.wez'
 bw.apply_to_config(config, {
   helper = '/path/to/bitwarden.wez/mock/bw-wez',
 })
-
-return config
 ```
 
 > The default keybinding is `Ctrl+Shift+B`.
@@ -267,7 +267,7 @@ not mean you have to accept opaque binaries on faith.
 - Releases are built in **GitHub Actions**, not on a maintainer laptop
 - Release artifacts are published with **SHA-256 checksums**
 - The workflow is set up for **build provenance attestation**
-- `Cargo.lock` is committed so builds are pinned and reproducible-minded
+- `Cargo.lock` is committed so builds are reproducible and-minded
 - You can **build the helper yourself** and point the plugin at your own binary
 
 If you prefer source-first trust, that path is fully supported.
