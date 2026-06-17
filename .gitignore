@@ -1,6 +1,12 @@
-helper/target/
-.DS_Store
-*.swp
-*.swo
+# Rust
+/helper/target/
+**/*.rs.bk
+# NB: Cargo.lock IS committed — it pins exact dependency versions, which the
+# reproducible-build / binary-provenance story depends on.
 
-!bin/
+# Lavish review artifacts
+/.lavish/
+
+# OS
+.DS_Store
+**/graphify-out/
