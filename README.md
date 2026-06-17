@@ -15,9 +15,7 @@
     <img src="https://img.shields.io/badge/platform-macOS-111827" alt="Platform: macOS" />
     <img src="https://img.shields.io/badge/WezTerm-plugin-4f46e5" alt="WezTerm plugin" />
     <img src="https://img.shields.io/badge/unlock-Touch%20ID-0f766e" alt="Touch ID unlock" />
-    <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
-    <img src="https://img.shields.io/github/last-commit/usrivastava92/bitwarden.wez" alt="Last Commit" />
-    <a href="https://scorecard.dev/status/github.com/usrivastava92/bitwarden.wez"><img src="https://api.scorecard.dev/projects/github.com/usrivastava92/bitwarden.wez/badge" alt="OpenSSF Scorecard" /></a>
+    <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />    <a href="https://scorecard.dev/status/github.com/usrivastava92/bitwarden.wez"><img src="https://api.scorecard.dev/projects/github.com/usrivastava92/bitwarden.wez/badge" alt="OpenSSF Scorecard" /></a>
   </p>
 </div>
 
