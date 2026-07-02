@@ -135,7 +135,7 @@ bw.apply_to_config(config, {
 })
 ```
 
-> The default keybinding is `Ctrl+Shift+B`.
+> The default keybindings are `Ctrl+Shift+B` (open picker) and `Ctrl+Shift+G` (action-menu picker).
 
 ### Build from source instead of using the bundled helper
 
@@ -177,7 +177,7 @@ bw.apply_to_config(config, {
 | `helper_args` | `{}` | Extra args passed before the subcommand |
 | `key`, `mods` | `b`, `CTRL|SHIFT` | Main picker keybind |
 | `default_action` | `copy_password` | Also supports `type_password`, `copy_username`, `copy_totp`, `menu` |
-| `menu_key`, `menu_mods` | optional | Separate action-menu binding |
+| `menu_key`, `menu_mods` | `g`, `CTRL|SHIFT` | Separate action-menu binding |
 | `clear_clipboard_seconds` | `20` | Set `0` to disable auto-clear |
 | `fuzzy` | `true` | Fuzzy search in the picker |
 | `notify` | `true` | Show result notifications |

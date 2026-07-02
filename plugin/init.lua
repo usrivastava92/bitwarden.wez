@@ -111,8 +111,8 @@ local defaults = {
 
   -- Optional second keybinding that opens the picker then shows an action
   -- submenu (copy/type password, username, TOTP). Set to nil to disable.
-  menu_key = nil,
-  menu_mods = nil,
+  menu_key = 'g',
+  menu_mods = 'CTRL|SHIFT',
 
   -- What Enter does on the main picker. One of:
   -- 'copy_password' | 'type_password' | 'copy_username' | 'copy_totp' | 'menu'
