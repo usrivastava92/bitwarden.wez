@@ -3,7 +3,7 @@
   "extends": [
     "config:recommended",
     "group:allNonMajor",
-    ":pinGitHubActionsDigests"
+    "helpers:pinGitHubActionDigests"
   ],
   "schedule": ["on saturday"],
   "timezone": "Asia/Kolkata",
