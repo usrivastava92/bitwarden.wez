@@ -29,7 +29,7 @@ aes = "0.8"
 cbc = { version = "0.1", features = ["std"] }
 
 # home dir / socket path resolution
-dirs = "5"
+dirs = "6"
 
 # mlock the in-memory key in the agent (best-effort, keeps it out of swap)
 libc = "0.2"
