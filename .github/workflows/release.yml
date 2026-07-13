@@ -5,8 +5,7 @@
 #
 # This runs once the repo is on GitHub. Notes to validate on first run:
 #   - The `bundle` job uses the `production` environment and pushes to the
-#     default branch with `RELEASE_TOKEN`, which should be a fine-grained PAT
-#     owned by an admin-capable account for this repo.
+#     default branch with a GitHub App token.
 #   - Provenance attestation needs the id-token + attestations permissions below.
 #   - Reproducibility goal: `cargo build --release --locked` here should match a
 #     user's local build of the same tag.
@@ -86,14 +85,24 @@ jobs:
     name: commit bundled binaries
     needs: build
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     environment: production
     steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        id: app-token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: usrivastava92
+          repositories: bitwarden.wez
+          permission-contents: write
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
-          token: ${{ secrets.RELEASE_TOKEN }}
+          ref: main
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -118,4 +127,4 @@ jobs:
           fi
           git add bin/
           git commit -m "ci: update bundled helper binaries (${GITHUB_REF_NAME:-manual}) [skip ci]"
-          git push
+          git push origin HEAD:main
