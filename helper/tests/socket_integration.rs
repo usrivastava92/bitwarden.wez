@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
-use cbc::cipher::{block_padding::Pkcs7, BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use cbc::cipher::{block_padding::Pkcs7, BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use rsa::pkcs8::DecodePublicKey;
@@ -207,7 +207,7 @@ fn handle_encrypted(msg: &serde_json::Value, state: &ConnState) -> Option<serde_
                 "command": "unlockWithBiometricsForUser",
                 "messageId": message_id,
                 "response": true,
-                "userKeyB64": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTA=",
+                "userKeyB64": B64.encode([0x42u8; 64]),
             })
         }
         _ => serde_json::json!({
@@ -383,7 +383,22 @@ fn test_session_full_handshake_over_socket() {
         .biometric_unlock()
         .expect("biometric unlock should succeed");
 
-    assert!(!user_key.is_empty(), "user key should not be empty");
+    assert_eq!(
+        user_key,
+        B64.encode([0x42u8; 64]),
+        "user key should survive the encrypted socket round trip"
+    );
+    let decoded_user_key = B64
+        .decode(&user_key)
+        .expect("user key should be valid base64");
+    assert_eq!(
+        decoded_user_key.len(),
+        64,
+        "user key should contain 64 bytes"
+    );
+    println!(
+        "encrypted socket handshake and biometric unlock returned the expected 64-byte user key"
+    );
 
     std::mem::drop(session);
     handle.join().ok();

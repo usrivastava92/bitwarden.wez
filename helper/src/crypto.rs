@@ -12,9 +12,9 @@
 //! encoding (DER SPKI base64, as used here) are the most likely things to need
 //! a tweak if the handshake is rejected.
 
-use cbc::cipher::{block_padding::Pkcs7, BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use cbc::cipher::{block_padding::Pkcs7, BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
