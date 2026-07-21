@@ -12,7 +12,7 @@
 //! encoding (DER SPKI base64, as used here) are the most likely things to need
 //! a tweak if the handshake is rejected.
 
-use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use cbc::cipher::{block_padding::Pkcs7, BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use hmac::{Hmac, Mac};
@@ -111,8 +111,9 @@ impl SymmetricKey {
     pub fn encrypt_parts(&self, plaintext: &[u8]) -> EncParts {
         let mut iv = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut iv);
-        let ct = Aes256CbcEnc::new(&self.enc.into(), &iv.into())
-            .encrypt_padded_vec_mut::<Pkcs7>(plaintext);
+        let ct = Aes256CbcEnc::new_from_slices(&self.enc, &iv)
+            .expect("valid key/iv length")
+            .encrypt_padded_vec::<Pkcs7>(plaintext);
 
         // MAC is computed over iv || ciphertext.
         let mut mac = <HmacSha256 as Mac>::new_from_slice(&self.mac).expect("hmac key");
@@ -148,8 +149,9 @@ impl SymmetricKey {
             return Err(anyhow!("bad iv length {}", iv.len()));
         }
         let iv_arr: [u8; 16] = iv.try_into().unwrap();
-        let pt = Aes256CbcDec::new(&self.enc.into(), &iv_arr.into())
-            .decrypt_padded_vec_mut::<Pkcs7>(&ct)
+        let pt = Aes256CbcDec::new_from_slices(&self.enc, &iv_arr)
+            .map_err(|e| anyhow!("AES-CBC decrypt init failed: {e}"))?
+            .decrypt_padded_vec::<Pkcs7>(&ct)
             .map_err(|e| anyhow!("AES-CBC decrypt failed: {e}"))?;
         Ok(pt)
     }

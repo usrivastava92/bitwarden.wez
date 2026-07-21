@@ -16,17 +16,20 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 base64 = "0.22"
-rand = "0.10"
+rand = "0.8"
 uuid = { version = "1", features = ["v4"] }
 
 # crypto for the native-messaging handshake (RSA-OAEP transport key) and the
 # Bitwarden EncString format (AES-256-CBC + HMAC-SHA256).
 rsa = { version = "0.9", features = ["sha1"] }
-sha1 = "0.11"
-sha2 = "0.11"
-hmac = "0.13"
+# sha1/sha2/hmac stay at 0.10/0.12 to match rsa 0.9's digest 0.10 dependency.
+sha1 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
 aes = "0.9"
-cbc = { version = "0.2", features = ["std"] }
+# NOTE: cbc 0.2 dropped the "std" feature that existed in 0.1; "alloc" replaces
+# it and is needed for the heap-allocated encrypt/decrypt_vec APIs.
+cbc = { version = "0.2", features = ["alloc"] }
 
 # home dir / socket path resolution
 dirs = "6"
@@ -38,13 +41,13 @@ libc = "0.2"
 serde_json = "1"
 anyhow = "1"
 base64 = "0.22"
-rand = "0.10"
+rand = "0.8"
 rsa = { version = "0.9", features = ["sha1"] }
-sha1 = "0.11"
-sha2 = "0.11"
-hmac = "0.13"
+sha1 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
 aes = "0.9"
-cbc = { version = "0.2", features = ["std"] }
+cbc = { version = "0.2", features = ["alloc"] }
 libc = "0.2"
 
 [profile.release]

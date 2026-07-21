@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
-use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use cbc::cipher::{block_padding::Pkcs7, BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use hmac::{Hmac, Mac};
@@ -188,8 +188,9 @@ fn handle_encrypted(msg: &serde_json::Value, state: &ConnState) -> Option<serde_
 
     let mut iv_arr = [0u8; 16];
     iv_arr.copy_from_slice(&iv);
-    let pt = Aes256CbcDec::new(&enc_key.into(), &iv_arr.into())
-        .decrypt_padded_vec_mut::<Pkcs7>(&ct)
+    let pt = Aes256CbcDec::new_from_slices(&enc_key, &iv_arr)
+        .expect("valid key/iv length")
+        .decrypt_padded_vec::<Pkcs7>(&ct)
         .ok()?;
 
     let inner: serde_json::Value = serde_json::from_slice(&pt).ok()?;
@@ -220,8 +221,9 @@ fn handle_encrypted(msg: &serde_json::Value, state: &ConnState) -> Option<serde_
     let mut resp_iv_arr = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut resp_iv_arr);
 
-    let resp_ct = Aes256CbcEnc::new(&enc_key.into(), &resp_iv_arr.into())
-        .encrypt_padded_vec_mut::<Pkcs7>(resp_json.as_bytes());
+    let resp_ct = Aes256CbcEnc::new_from_slices(&enc_key, &resp_iv_arr)
+        .expect("valid key/iv length")
+        .encrypt_padded_vec::<Pkcs7>(resp_json.as_bytes());
 
     let mut resp_mac = <HmacSha256 as Mac>::new_from_slice(&mac_key).ok()?;
     resp_mac.update(&resp_iv_arr);
